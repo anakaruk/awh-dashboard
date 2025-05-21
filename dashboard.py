@@ -7,7 +7,13 @@ st.set_page_config(page_title="AWH Station Dashboard", layout="wide")
 st.title("📊 AWH Data Dashboard")
 
 # Firestore init
-db = firestore.Client()
+import json
+from google.oauth2 import service_account
+
+keyfile_dict = json.loads(st.secrets["GOOGLE_APPLICATION_CREDENTIALS"])
+creds = service_account.Credentials.from_service_account_info(keyfile_dict)
+db = firestore.Client(credentials=creds, project=keyfile_dict["project_id"])
+
 
 # Get all station IDs
 station_docs = db.collection("stations").stream()
