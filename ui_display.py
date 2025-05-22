@@ -68,7 +68,7 @@ def render_data_section(df, station_id, selected_fields):
             chart = alt.Chart(df_sorted).mark_circle(size=60).encode(
                 x='timestamp:T',
                 y=alt.Y(field, title=field),
-                tooltip=['timestamp', field]
+                tooltip=['Date-Time', field]
             ).properties(width="container", height=300)
 
             st.altair_chart(chart, use_container_width=True)
