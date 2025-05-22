@@ -53,20 +53,27 @@ else:
     if show_temp and "temperature" in df.columns:
         selected_fields.append("temperature")
 
-    if selected_fields:
-        for field in selected_fields:
-            st.subheader(f"📋 Data Table: `{field}`")
+   if selected_fields:
+    for field in selected_fields:
+        st.subheader(f"📊 `{field}` Data")
+
+        col1, col2 = st.columns([1, 2])  # Table on the left (1/3), Plot on right (2/3)
+
+        with col1:
+            st.markdown("#### 📋 Data Table")
             st.dataframe(df[["timestamp", field]])
 
-            st.subheader(f"📈 Plotting `{field}` over time")
-            plot_df = df.set_index("timestamp")
-            st.line_chart(plot_df[field])
-
             st.download_button(
-                label=f"⬇️ Download `{field}` as CSV",
+                label=f"⬇️ Download `{field}` CSV",
                 data=df[["timestamp", field]].to_csv(index=False),
                 file_name=f"{selected_station}_{field}.csv",
                 mime="text/csv"
             )
-    else:
-        st.info("☝️ Please select at least one data type to display and plot.")
+
+        with col2:
+            st.markdown("#### 📈 Plot")
+            plot_df = df.set_index("timestamp")
+            st.line_chart(plot_df[field])
+else:
+    st.info("☝️ Please select at least one data type to display and plot.")
+
