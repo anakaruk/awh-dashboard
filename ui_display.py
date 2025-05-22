@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 
-
 def render_controls(station_list):
     st.sidebar.header("🔧 Controls")
     selected_station = st.sidebar.selectbox("📍 Select Station", station_list)
@@ -64,14 +63,12 @@ def render_data_section(df, station_id, selected_fields):
             )
 
         with col2:
-            st.markdown("#### 📈 Plot")
-         df_sorted = df.sort_values("timestamp")
+            st.markdown("#### 📈 Scatter Plot")
+            df_sorted = df.sort_values("timestamp")
+            chart = alt.Chart(df_sorted).mark_circle(size=60).encode(
+                x='timestamp:T',
+                y=alt.Y(field, title=field),
+                tooltip=['timestamp', field]
+            ).properties(width="container", height=300)
 
-chart = alt.Chart(df_sorted).mark_circle(size=60).encode(
-    x='timestamp:T',
-    y=alt.Y(field, title=field),
-    tooltip=['timestamp', field]
-).properties(width="container", height=300)
-
-st.altair_chart(chart, use_container_width=True)
-
+            st.altair_chart(chart, use_container_width=True)
