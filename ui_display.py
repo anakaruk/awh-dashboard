@@ -1,5 +1,7 @@
 import streamlit as st
 import pandas as pd
+import altair as alt
+
 
 def render_controls(station_list):
     st.sidebar.header("🔧 Controls")
@@ -63,5 +65,13 @@ def render_data_section(df, station_id, selected_fields):
 
         with col2:
             st.markdown("#### 📈 Plot")
-            df_sorted = df.sort_values("timestamp")
-            st.line_chart(df_sorted.set_index("timestamp")[field])
+         df_sorted = df.sort_values("timestamp")
+
+chart = alt.Chart(df_sorted).mark_circle(size=60).encode(
+    x='timestamp:T',
+    y=alt.Y(field, title=field),
+    tooltip=['timestamp', field]
+).properties(width="container", height=300)
+
+st.altair_chart(chart, use_container_width=True)
+
