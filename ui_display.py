@@ -5,7 +5,7 @@ def render_controls(station_list):
     st.sidebar.header("🔧 Controls")
     selected_station = st.sidebar.selectbox("📍 Select Station", station_list)
 
-    # ✅ Show field selectors
+    # Field checkboxes
     show_eff = st.sidebar.checkbox("⚙️ Harvesting Efficiency", value=True)
     show_prod = st.sidebar.checkbox("💧 Water Production", value=True)
     show_current = st.sidebar.checkbox("🔌 Current", value=True)
@@ -40,7 +40,7 @@ def render_data_section(df, station_id, selected_fields):
     st.title(f"📊 AWH Dashboard – {station_id}")
 
     if df.empty:
-        st.warning("No data found.")
+        st.warning("No data found for this station.")
         return
 
     available_fields = [col for col in selected_fields if col in df.columns]
