@@ -6,55 +6,71 @@ from google.cloud import firestore
 
 st.set_page_config(page_title="AWH Dashboard", layout="wide")
 
-# 🔐 Load service account credentials from Streamlit secrets
+# 🔐 Credentials
 service_account_info = json.loads(st.secrets["gcp_service_account"])
-key_path = "/tmp/service_account.json"
-with open(key_path, "w") as f:
+with open("/tmp/service_account.json", "w") as f:
     json.dump(service_account_info, f)
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = key_path
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/tmp/service_account.json"
 
-# 🔌 Initialize Firestore
 db = firestore.Client()
 
-# 🚀 Get list of stations from Firestore
-@st.cache_data(show_spinner=False)
+@st.cache_data
 def get_station_list():
     return [doc.id for doc in db.collection("stations").list_documents()]
 
-station_list = get_station_list()
-selected_station = st.selectbox("📍 Select a Station", station_list)
-
-# 📦 Load readings for selected station
-@st.cache_data(show_spinner=False)
+@st.cache_data
 def load_station_data(station_id):
     docs = db.collection("stations").document(station_id).collection("readings").stream()
     return pd.DataFrame([doc.to_dict() | {"id": doc.id} for doc in docs])
 
+# 🔹 Sidebar layout
+with st.sidebar:
+    st.header("🔧 Controls")
+    selected_station = st.selectbox("📍 Station", get_station_list())
+    show_date = st.checkbox("🗓️ Date/time", value=False)
+    show_weight = st.checkbox("⚖️ Weight", value=False)
+    show_power = st.checkbox("🔌 Power", value=False)
+    show_temp = st.checkbox("🌡️ Intake air temp", value=False)
+
 df = load_station_data(selected_station)
 
-# 🖥️ Interface
 st.title(f"📊 AWH Dashboard – {selected_station}")
 
 if df.empty:
-    st.warning(f"✅ Firestore connected, but no data found for `{selected_station}`.")
+    st.warning("No data found.")
 else:
-    # Column selection
-    all_columns = list(df.columns)
-    selected_columns = st.multiselect("📌 Select columns to display", options=all_columns, default=[])
-
-    if selected_columns:
-        st.dataframe(df[selected_columns])
-    else:
-        st.info("Select one or more columns above to view data.")
-
-    # Timestamp parsing and chart
     if "timestamp" in df.columns:
         df["timestamp"] = pd.to_datetime(df["timestamp"])
 
-        numeric_cols = df.select_dtypes(include="number").columns.tolist()
-        if numeric_cols:
-            chart_column = st.selectbox("📊 Select numeric column for chart", options=numeric_cols)
-            st.line_chart(df.set_index("timestamp")[chart_column])
+        col1, col2, col3 = st.columns([1, 1, 2])
 
-    # Export
-    st.download_button("⬇️ Download CSV", df.to_csv(index=False), file_name=f"{selected_station}_readings.csv")
+        # ⏱️ Date filter
+        with col1:
+            st.subheader("Date/Time")
+            start_date = st.date_input("Start", df["timestamp"].min().date())
+            end_date = st.date_input("End", df["timestamp"].max().date())
+
+        # 📊 Select metric
+        with col2:
+            st.subheader("Select Data")
+            available_metrics = []
+            if show_weight and "weight" in df.columns:
+                available_metrics.append("weight")
+            if show_power and "power" in df.columns:
+                available_metrics.append("power")
+            if show_temp and "temperature" in df.columns:
+                available_metrics.append("temperature")
+            if show_date:
+                available_metrics.append("timestamp")  # included by default
+
+            y_axis = st.selectbox("Y-axis data", available_metrics if available_metrics else ["None"])
+
+        # 📈 Plot
+        with col3:
+            st.subheader("📈 Plot")
+            if y_axis != "None" and y_axis in df.columns:
+                mask = (df["timestamp"].dt.date >= start_date) & (df["timestamp"].dt.date <= end_date)
+                plot_df = df[mask].set_index("timestamp")
+                st.line_chart(plot_df[y_axis])
+            else:
+                st.info("No data selected to plot.")
