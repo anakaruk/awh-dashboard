@@ -1,23 +1,27 @@
-# dashboard.py
 import streamlit as st
-from firestore_loader import load_station_data, get_station_list
+from firestore_loader import get_station_list, load_station_data
 from data_play import process_data
-from ui_display import render_ui
+from ui_display import render_controls, render_data_section
 
+# Set page config
 st.set_page_config(page_title="AWH Dashboard", layout="wide")
 
-# Sidebar controls
-with st.sidebar:
-    st.header("🔧 Controls")
-    selected_station = st.selectbox("📍 Select Station", get_station_list())
-    show_weight = st.checkbox("⚖️ Weight", value=False)
-    show_power = st.checkbox("🔌 Power", value=False)
-    show_temp = st.checkbox("🌡️ Intake Air Temp", value=False)
+# Load station list and render sidebar controls
+station_list = get_station_list()
+selected_station, show_weight, show_power, show_temp = render_controls(station_list)
 
 # Load and process data
 df_raw = load_station_data(selected_station)
 df = process_data(df_raw)
 
-# Render layout
-st.title(f"📊 AWH Dashboard – {selected_station}")
-render_ui(df, selected_station, show_weight, show_power, show_temp)
+# Determine which fields to show
+selected_fields = []
+if show_weight and "weight" in df.columns:
+    selected_fields.append("weight")
+if show_power and "power" in df.columns:
+    selected_fields.append("power")
+if show_temp and "temperature" in df.columns:
+    selected_fields.append("temperature")
+
+# Render the main content
+render_data_section(df, selected_station, selected_fields)
