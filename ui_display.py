@@ -65,5 +65,3 @@ def render_data_section(df, station_id, selected_fields):
             st.markdown("#### 📈 Plot")
             df_sorted = df.sort_values("timestamp")
             st.line_chart(df_sorted.set_index("timestamp")[field])
-
-    )
