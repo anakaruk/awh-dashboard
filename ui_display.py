@@ -2,40 +2,53 @@ import streamlit as st
 import pandas as pd
 
 def render_controls(station_list):
-    st.header("🔧 Controls")
-    selected_station = st.selectbox("📍 Select Station", station_list)
-    return selected_station
+    st.sidebar.header("🔧 Controls")
+    selected_station = st.sidebar.selectbox("📍 Select Station", station_list)
 
-def render_data_section(df, station_id):
+    # ✅ Show field selectors
+    show_eff = st.sidebar.checkbox("⚙️ Harvesting Efficiency", value=True)
+    show_prod = st.sidebar.checkbox("💧 Water Production", value=True)
+    show_current = st.sidebar.checkbox("🔌 Current", value=True)
+    show_power = st.sidebar.checkbox("⚡ Power", value=True)
+    show_temp_in = st.sidebar.checkbox("🌡️ Intake Temp", value=True)
+    show_humid_in = st.sidebar.checkbox("💨 Intake Humidity", value=True)
+    show_velocity_in = st.sidebar.checkbox("↘ Intake Velocity", value=True)
+    show_abs_in = st.sidebar.checkbox("🌫️ Abs Intake Humidity", value=True)
+    show_temp_out = st.sidebar.checkbox("🔥 Outtake Temp", value=True)
+    show_humid_out = st.sidebar.checkbox("💨 Outtake Humidity", value=True)
+    show_velocity_out = st.sidebar.checkbox("↗ Outtake Velocity", value=True)
+    show_abs_out = st.sidebar.checkbox("🌫️ Abs Outtake Humidity", value=True)
+
+    selected_fields = ["timestamp"]
+    if show_eff: selected_fields.append("harvesting_efficiency")
+    if show_prod: selected_fields.append("water_production")
+    if show_current: selected_fields.append("current")
+    if show_power: selected_fields.append("power")
+    if show_temp_in: selected_fields.append("intake_air_temperature (C)")
+    if show_humid_in: selected_fields.append("intake_air_humidity (%)")
+    if show_velocity_in: selected_fields.append("intake_air_velocity (m/s)")
+    if show_abs_in: selected_fields.append("absolute_intake_air_humidity")
+    if show_temp_out: selected_fields.append("outtake_air_temperature (C)")
+    if show_humid_out: selected_fields.append("outtake_air_humidity (%)")
+    if show_velocity_out: selected_fields.append("outtake_air_velocity (m/s)")
+    if show_abs_out: selected_fields.append("absolute_outtake_air_humidity")
+
+    return selected_station, selected_fields
+
+
+def render_data_section(df, station_id, selected_fields):
     st.title(f"📊 AWH Dashboard – {station_id}")
 
     if df.empty:
         st.warning("No data found.")
         return
 
-    display_columns = [
-        "timestamp",
-        "harvesting_efficiency",
-        "water_production",
-        "current",
-        "power",
-        "intake_air_temperature (C)",
-        "intake_air_humidity (%)",
-        "intake_air_velocity (m/s)",
-        "absolute_intake_air_humidity",
-        "outtake_air_temperature (C)",
-        "outtake_air_humidity (%)",
-        "outtake_air_velocity (m/s)",
-        "absolute_outtake_air_humidity"
-    ]
-
-    existing_columns = [col for col in display_columns if col in df.columns]
-
-    st.dataframe(df[existing_columns], use_container_width=True)
+    available_fields = [col for col in selected_fields if col in df.columns]
+    st.dataframe(df[available_fields], use_container_width=True)
 
     st.download_button(
-        label="⬇️ Download Full Table as CSV",
-        data=df[existing_columns].to_csv(index=False),
-        file_name=f"{station_id}_processed_data.csv",
+        label="⬇️ Download CSV",
+        data=df[available_fields].to_csv(index=False),
+        file_name=f"{station_id}_selected_data.csv",
         mime="text/csv"
     )
