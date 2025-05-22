@@ -1,44 +1,39 @@
-
 import streamlit as st
 from google.cloud import firestore
 import pandas as pd
+import os
 
-st.set_page_config(page_title="AWH Station Dashboard", layout="wide")
-st.title("📊 AWH Data Dashboard")
+# Title
+st.set_page_config(page_title="AWH Dashboard", layout="wide")
+st.title("📊 AWH Dashboard – Station 1 Readings")
 
-# Firestore init
-import json
-from google.oauth2 import service_account
-
-keyfile_dict = json.loads(st.secrets["GOOGLE_APPLICATION_CREDENTIALS"])
-creds = service_account.Credentials.from_service_account_info(keyfile_dict)
-db = firestore.Client(credentials=creds, project=keyfile_dict["project_id"])
-
-
-# Get all station IDs
-station_docs = db.collection("stations").stream()
-station_ids = [doc.id for doc in station_docs]
-
-station_id = st.selectbox("Select a station", station_ids)
-
-if station_id:
-    readings_ref = db.collection("stations").document(station_id).collection("readings")
-    readings = readings_ref.order_by("timestamp", direction=firestore.Query.DESCENDING).limit(100).stream()
-
+# Firestore connection
+@st.cache_resource
+def get_firestore_data():
+    db = firestore.Client()
+    docs = db.collection("stations").document("station_1").collection("readings").stream()
     data = []
-    for doc in readings:
-        row = doc.to_dict()
-        row["timestamp"] = row.get("timestamp")
-        data.append(row)
+    for doc in docs:
+        d = doc.to_dict()
+        d['id'] = doc.id
+        data.append(d)
+    return pd.DataFrame(data)
 
-    if data:
-        df = pd.DataFrame(data)
+# Load data
+try:
+    df = get_firestore_data()
+
+    if df.empty:
+        st.warning("⚠️ No data found in Firestore.")
+    else:
+        # Timestamp conversion
+        if 'timestamp' in df.columns:
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+
+        st.subheader("📋 Full Table View")
         st.dataframe(df)
 
-        with st.expander("📈 Charts"):
-            st.line_chart(df.set_index("timestamp")[["temperature", "humidity", "velocity"]])
-
-        csv = df.to_csv(index=False)
-        st.download_button("⬇️ Download CSV", csv, "data.csv", "text/csv")
-    else:
-        st.warning("No data found for this station.")
+        # Column selection
+        numeric_cols = df.select_dtypes(include='number').columns.tolist()
+        if 'timestamp' in df.columns:
+            x_options = [']()_
