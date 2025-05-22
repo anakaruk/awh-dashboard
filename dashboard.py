@@ -16,19 +16,22 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = key_path
 # 🔌 Firestore client
 db = firestore.Client()
 
+# 📡 Get station list
 @st.cache_data
 def get_station_list():
     return [doc.id for doc in db.collection("stations").list_documents()]
 
+# 📥 Load station data
 @st.cache_data
 def load_station_data(station_id):
     docs = db.collection("stations").document(station_id).collection("readings").stream()
     return pd.DataFrame([doc.to_dict() | {"id": doc.id} for doc in docs])
 
-# 🎛️ Sidebar
+# 🧭 Sidebar UI
 with st.sidebar:
     st.header("🔧 Controls")
     selected_station = st.selectbox("📍 Select Station", get_station_list())
+
     show_weight = st.checkbox("⚖️ Weight", value=False)
     show_power = st.checkbox("🔌 Power", value=False)
     show_temp = st.checkbox("🌡️ Intake Air Temp", value=False)
@@ -44,7 +47,7 @@ else:
     if "timestamp" in df.columns:
         df["timestamp"] = pd.to_datetime(df["timestamp"])
 
-    # Select field to display (just one at a time)
+    # Determine fields to display
     selected_fields = []
     if show_weight and "weight" in df.columns:
         selected_fields.append("weight")
@@ -53,27 +56,26 @@ else:
     if show_temp and "temperature" in df.columns:
         selected_fields.append("temperature")
 
-   if selected_fields:
-    for field in selected_fields:
-        st.subheader(f"📊 `{field}` Data")
+    if selected_fields:
+        for field in selected_fields:
+            st.subheader(f"📊 `{field}` Data")
 
-        col1, col2 = st.columns([1, 2])  # Table on the left (1/3), Plot on right (2/3)
+            col1, col2 = st.columns([1, 3], gap="large")
 
-        with col1:
-            st.markdown("#### 📋 Data Table")
-            st.dataframe(df[["timestamp", field]])
+            with col1:
+                st.markdown("#### 📋 Table")
+                st.dataframe(df[["timestamp", field]], use_container_width=True)
 
-            st.download_button(
-                label=f"⬇️ Download `{field}` CSV",
-                data=df[["timestamp", field]].to_csv(index=False),
-                file_name=f"{selected_station}_{field}.csv",
-                mime="text/csv"
-            )
+                st.download_button(
+                    label=f"⬇️ Download `{field}` CSV",
+                    data=df[["timestamp", field]].to_csv(index=False),
+                    file_name=f"{selected_station}_{field}.csv",
+                    mime="text/csv"
+                )
 
-        with col2:
-            st.markdown("#### 📈 Plot")
-            plot_df = df.set_index("timestamp")
-            st.line_chart(plot_df[field])
-else:
-    st.info("☝️ Please select at least one data type to display and plot.")
-
+            with col2:
+                st.markdown("#### 📈 Plot")
+                df_sorted = df.sort_values("timestamp")
+                st.line_chart(df_sorted.set_index("timestamp")[field])
+    else:
+        st.info("☝️ Please select at least one data type from the sidebar to view and plot.")
