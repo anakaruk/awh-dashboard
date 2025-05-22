@@ -43,12 +43,27 @@ def render_data_section(df, station_id, selected_fields):
         st.warning("No data found for this station.")
         return
 
-    available_fields = [col for col in selected_fields if col in df.columns]
-    st.dataframe(df[available_fields], use_container_width=True)
+    available_fields = [col for col in selected_fields if col in df.columns and col != "timestamp"]
 
-    st.download_button(
-        label="⬇️ Download CSV",
-        data=df[available_fields].to_csv(index=False),
-        file_name=f"{station_id}_selected_data.csv",
-        mime="text/csv"
+    for field in available_fields:
+        st.subheader(f"📊 `{field}` Overview")
+
+        col1, col2 = st.columns([1, 2], gap="large")
+
+        with col1:
+            st.markdown("#### 📋 Table")
+            st.dataframe(df[["timestamp", field]], use_container_width=True)
+
+            st.download_button(
+                label=f"⬇️ Download `{field}` CSV",
+                data=df[["timestamp", field]].to_csv(index=False),
+                file_name=f"{station_id}_{field}.csv",
+                mime="text/csv"
+            )
+
+        with col2:
+            st.markdown("#### 📈 Plot")
+            df_sorted = df.sort_values("timestamp")
+            st.line_chart(df_sorted.set_index("timestamp")[field])
+
     )
