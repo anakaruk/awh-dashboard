@@ -66,9 +66,9 @@ def render_data_section(df, station_id, selected_fields):
             st.markdown("#### 📈 Scatter Plot")
             df_sorted = df.sort_values("timestamp")
             chart = alt.Chart(df_sorted).mark_circle(size=60).encode(
-                x='timestamp:T',
+                x='Date-Time:T',
                 y=alt.Y(field, title=field),
-                tooltip=['Date-Time', field]
+                tooltip=['timestamp', field]
             ).properties(width="container", height=300)
 
             st.altair_chart(chart, use_container_width=True)
