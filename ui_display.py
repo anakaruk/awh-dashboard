@@ -66,7 +66,7 @@ def render_data_section(df, station_id, selected_fields):
             st.markdown("#### 📈 Scatter Plot")
             df_sorted = df.sort_values("timestamp")
             chart = alt.Chart(df_sorted).mark_circle(size=60).encode(
-                x='Date-Time:T',
+                x='timestamp:T',
                 y=alt.Y(field, title=field),
                 tooltip=['timestamp', field]
             ).properties(width="container", height=300)
