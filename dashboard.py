@@ -1,11 +1,19 @@
 import streamlit as st
 import json
-from firebase_admin import credentials, initialize_app
+import firebase_admin
+from firebase_admin import credentials
 
-# Initialize Firebase with Streamlit secrets (MUST be before any Firestore calls)
+# Load Firebase credentials from Streamlit secrets
 key_json = st.secrets["FIREBASE_JSON"]
+
+# If your secret uses \\n, convert to \n (safe for both cases)
+key_json = key_json.replace("\\n", "\n")
+
 cred = credentials.Certificate(json.loads(key_json))
-initialize_app(cred)
+
+# Only initialize Firebase if not already initialized
+if not firebase_admin._apps:
+    firebase_admin.initialize_app(cred)
 
 from firestore_loader import get_station_list, load_station_data
 from data_play import process_data
