@@ -4,7 +4,7 @@ import altair as alt
 
 def render_controls(station_list):
     st.sidebar.header("🔧 Controls")
-    selected_station = st.sidebar.selectbox("📍 Select Station", station_list)
+    selected_station_name = st.sidebar.selectbox("📍 Select Station", station_list)
 
     # Field checkboxes
     show_eff = st.sidebar.checkbox("⚙️ Harvesting Efficiency", value=True)
@@ -34,11 +34,11 @@ def render_controls(station_list):
     if show_velocity_out: selected_fields.append("outtake_air_velocity (m/s)")
     if show_abs_out: selected_fields.append("absolute_outtake_air_humidity")
 
-    return selected_station, selected_fields
+    return selected_station_name, selected_fields
 
 
-def render_data_section(df, station_id, selected_fields):
-    st.title(f"📊 AWH Dashboard – {station_id}")
+def render_data_section(df, station_name, selected_fields):
+    st.title(f"📊 AWH Dashboard – {station_name}")
 
     if df.empty:
         st.warning("No data found for this station.")
@@ -58,7 +58,7 @@ def render_data_section(df, station_id, selected_fields):
             st.download_button(
                 label=f"⬇️ Download `{field}` CSV",
                 data=df[["timestamp", field]].to_csv(index=False),
-                file_name=f"{station_id}_{field}.csv",
+                file_name=f"{station_name}_{field}.csv",
                 mime="text/csv"
             )
 
