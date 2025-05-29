@@ -3,13 +3,13 @@ import json
 import firebase_admin
 from firebase_admin import credentials
 
-# Load Firebase credentials from Streamlit secrets
 key_json = st.secrets["FIREBASE_JSON"]
-
-# If your secret uses \\n, convert to \n (safe for both cases)
-key_json = key_json.replace("\\n", "\n")
+key_json = key_json.replace("\\n", "\n")  # Converts \\n to real newlines
 
 cred = credentials.Certificate(json.loads(key_json))
+
+if not firebase_admin._apps:
+    firebase_admin.initialize_app(cred)
 
 # Only initialize Firebase if not already initialized
 if not firebase_admin._apps:
