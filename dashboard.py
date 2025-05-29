@@ -5,7 +5,7 @@ from ui_display import render_controls, render_data_section
 
 st.set_page_config(page_title="AWH Dashboard", layout="wide")
 
-# Get list of stations
+# Get list of stations (now assumed to be station_name)
 station_list = get_station_list()
 
 # Handle case where no stations are found
@@ -13,17 +13,17 @@ if not station_list:
     st.error("🚫 No stations available in Firestore.")
     st.stop()
 
-# Render sidebar and return selected station and field choices
-selected_station, selected_fields = render_controls(station_list)
+# Render sidebar and return selected station_name and field choices
+selected_station_name, selected_fields = render_controls(station_list)
 
 # Handle missing selection
-if not selected_station:
+if not selected_station_name:
     st.warning("Please select a station from the list.")
     st.stop()
 
 # Load and process data
-df_raw = load_station_data(selected_station)
+df_raw = load_station_data(selected_station_name)
 df = process_data(df_raw)
 
 # Display results
-render_data_section(df, selected_station, selected_fields)
+render_data_section(df, selected_station_name, selected_fields)
