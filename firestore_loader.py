@@ -1,27 +1,39 @@
 import os
-import json
+import firebase_admin
+from firebase_admin import credentials, firestore
 import pandas as pd
-from google.cloud import firestore
-import streamlit as st
 
-# 🔐 Load credentials from Streamlit secrets
-service_account_info = json.loads(st.secrets["gcp_service_account"])
-key_path = "/tmp/service_account.json"
-with open(key_path, "w") as f:
-    json.dump(service_account_info, f)
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = key_path
+# Load Firestore credentials from a service account key file
+FIRESTORE_KEY = os.getenv("FIRESTORE_KEY", "firebase-key.json")
+if not firebase_admin._apps:
+    cred = credentials.Certificate(FIRESTORE_KEY)
+    firebase_admin.initialize_app(cred)
+db = firestore.client()
 
-# 🔌 Initialize Firestore client
-db = firestore.Client()
+# --- CONFIGURATION ---
 
-# 📡 Get list of stations
-@st.cache_data
+COLLECTION_NAME = "station_data"  # <-- Change if your Firestore collection has a different name
+STATION_FIELD = "station_name"    # <-- Use "station_name" field to identify stations
+
 def get_station_list():
-    return [doc.id for doc in db.collection("stations").list_documents()]
+    """
+    Returns a sorted list of unique station_name entries found in the Firestore collection.
+    """
+    docs = db.collection(COLLECTION_NAME).stream()
+    station_set = set()
+    for doc in docs:
+        data = doc.to_dict()
+        station = data.get(STATION_FIELD)
+        if station:
+            station_set.add(station)
+    return sorted(list(station_set))
 
-# 📥 Load data for a specific station
-@st.cache_data
-def load_station_data(station_id):
-    docs = db.collection("stations").document(station_id).collection("readings").stream()
-    return pd.DataFrame([doc.to_dict() | {"id": doc.id} for doc in docs])
-
+def load_station_data(station_name):
+    """
+    Loads all documents for a given station_name from the Firestore collection and returns as a DataFrame.
+    """
+    docs = db.collection(COLLECTION_NAME).where(STATION_FIELD, "==", station_name).stream()
+    records = [doc.to_dict() for doc in docs]
+    if not records:
+        return pd.DataFrame()
+    return pd.DataFrame(records)
