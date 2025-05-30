@@ -2,9 +2,6 @@ import pandas as pd
 import math
 
 def calculate_absolute_humidity(temp_c, rel_humidity):
-    """
-    Calculate absolute humidity (g/m³) from temperature (°C) and relative humidity (%)
-    """
     try:
         exponent = (17.67 * temp_c) / (temp_c + 243.5)
         sat_vapor_pressure = 6.112 * math.exp(exponent)
@@ -15,17 +12,37 @@ def calculate_absolute_humidity(temp_c, rel_humidity):
         print(f"Error calculating AH: {e}")
         return None
 
+def calculate_water_production(weight_series):
+    water_production = []
+    total = 0
+    prev = None
+
+    for weight in weight_series:
+        if pd.isnull(weight):
+            water_production.append(None)
+            continue
+
+        if prev is None:
+            total = weight
+        elif weight >= prev:
+            total += (weight - prev)
+        else:
+            total += weight  # reset occurred
+
+        water_production.append(total)
+        prev = weight
+
+    return water_production
+
 def process_data(df):
     df = df.copy()
 
     print("📋 Original columns:", df.columns.tolist())
 
-    # Convert timestamp to datetime and sort
     if "timestamp" in df.columns:
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df = df.sort_values("timestamp")
 
-    # Rename columns to standard display names
     rename_map = {
         "velocity": "intake_air_velocity (m/s)",
         "temperature": "intake_air_temperature (C)",
@@ -41,13 +58,11 @@ def process_data(df):
 
     print("✅ Renamed columns:", df.columns.tolist())
 
-    # Add placeholder columns
     df["harvesting_efficiency"] = None
-    df["water_production"] = None
     df["absolute_intake_air_humidity"] = None
     df["absolute_outtake_air_humidity"] = None
 
-    # Calculate absolute intake air humidity
+    # ✅ Calculate absolute intake humidity
     if "intake_air_temperature (C)" in df.columns and "intake_air_humidity (%)" in df.columns:
         df["absolute_intake_air_humidity"] = df.apply(
             lambda row: calculate_absolute_humidity(float(row["intake_air_temperature (C)"]),
@@ -56,10 +71,8 @@ def process_data(df):
             else None,
             axis=1
         )
-    else:
-        print("⚠️ Intake air temp/humidity columns missing")
 
-    # Calculate absolute outtake air humidity
+    # ✅ Calculate absolute outtake humidity
     if "outtake_air_temperature (C)" in df.columns and "outtake_air_humidity (%)" in df.columns:
         df["absolute_outtake_air_humidity"] = df.apply(
             lambda row: calculate_absolute_humidity(float(row["outtake_air_temperature (C)"]),
@@ -68,7 +81,11 @@ def process_data(df):
             else None,
             axis=1
         )
+
+    # ✅ Calculate water production
+    if "weight" in df.columns:
+        df["water_production"] = calculate_water_production(df["weight"])
     else:
-        print("⚠️ Outtake air temp/humidity columns missing")
+        print("⚠️ No 'weight' column found for water production")
 
     return df
