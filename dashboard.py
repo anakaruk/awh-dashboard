@@ -4,52 +4,56 @@ from data_play import process_data
 from ui_display import render_controls, render_data_section
 from datetime import datetime, timedelta
 
-# Set page layout and title
+# Set page layout
 st.set_page_config(page_title="AWH Dashboard", layout="wide")
 
-# --- Initialize session state ---
+# Initialize session state
 if "last_refresh" not in st.session_state:
     st.session_state.last_refresh = datetime.now()
 
-# --- Sidebar: Manual Refresh & Info ---
+# Auto refresh settings
+AUTO_REFRESH_INTERVAL = 600  # seconds (10 minutes)
+
+# Sidebar refresh section
 with st.sidebar:
     st.markdown("### 🔄 Refresh Options")
 
+    # Manual refresh button
     if st.button("🔄 Refresh Data Now"):
         st.session_state.last_refresh = datetime.now()
-        st.rerun()  # ✅ updated from st.experimental_rerun()
+        st.rerun()
 
-    st.markdown(f"🕒 Last refreshed: `{st.session_state.last_refresh.strftime('%H:%M:%S')}`")
-    refresh_in = 600 - int((datetime.now() - st.session_state.last_refresh).total_seconds())
-    if refresh_in < 0:
-        refresh_in = 0
-    st.markdown(f"⏳ Auto refresh in: `{refresh_in}` seconds")
+    # Display last refreshed time
+    last_time_str = st.session_state.last_refresh.strftime('%Y-%m-%d %H:%M:%S')
+    st.markdown(f"🕒 Last refreshed: `{last_time_str}`")
 
-# --- Auto refresh every 10 minutes ---
-refresh_due = datetime.now() - st.session_state.last_refresh > timedelta(minutes=10)
+    # Display seconds remaining
+    seconds_passed = int((datetime.now() - st.session_state.last_refresh).total_seconds())
+    seconds_remaining = max(0, AUTO_REFRESH_INTERVAL - seconds_passed)
+    st.markdown(f"⏳ Auto refresh in: `{seconds_remaining}` seconds")
 
-# --- Load Station List ---
+# Auto refresh check (done after rendering to avoid early rerun)
+if seconds_passed >= AUTO_REFRESH_INTERVAL:
+    st.session_state.last_refresh = datetime.now()
+    st.rerun()
+
+# Get list of stations
 station_list = get_station_list()
 
 if not station_list:
     st.error("🚫 No stations available in Firestore.")
     st.stop()
 
-# --- Sidebar Controls ---
+# Sidebar input controls
 selected_station, selected_fields, intake_area = render_controls(station_list)
 
 if not selected_station:
     st.warning("Please select a station from the list.")
     st.stop()
 
-# --- Load and Process Data ---
+# Load and process station data
 df_raw = load_station_data(selected_station)
 df = process_data(df_raw, intake_area)
 
-# --- Display Dashboard ---
+# Display results
 render_data_section(df, selected_station, selected_fields)
-
-# --- Trigger rerun at the end only if due ---
-if refresh_due:
-    st.session_state.last_refresh = datetime.now()
-    st.rerun()  # ✅ updated from st.experimental_rerun()
