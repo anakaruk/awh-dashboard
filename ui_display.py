@@ -6,6 +6,23 @@ def render_controls(station_list):
     st.sidebar.header("🔧 Controls")
     selected_station_name = st.sidebar.selectbox("📍 Select Station", station_list)
 
+    # Initialize session state for intake areas if not already
+    if "intake_areas" not in st.session_state:
+        st.session_state.intake_areas = {}
+
+    # Retrieve or set default intake area for the selected station
+    default_area = st.session_state.intake_areas.get(selected_station_name, 1.0)
+
+    # Input for intake area per station
+    intake_area = st.sidebar.number_input(
+        "🧮 Intake Area (m²)",
+        min_value=0.01,
+        max_value=100.0,
+        value=default_area,
+        step=0.01
+    )
+    st.session_state.intake_areas[selected_station_name] = intake_area
+
     # Field checkboxes
     show_eff = st.sidebar.checkbox("⚙️ Harvesting Efficiency", value=True)
     show_prod = st.sidebar.checkbox("💧 Water Production", value=True)
@@ -34,7 +51,7 @@ def render_controls(station_list):
     if show_velocity_out: selected_fields.append("outtake_air_velocity (m/s)")
     if show_abs_out: selected_fields.append("absolute_outtake_air_humidity")
 
-    return selected_station_name, selected_fields
+    return selected_station_name, selected_fields, intake_area
 
 
 def render_data_section(df, station_name, selected_fields):
