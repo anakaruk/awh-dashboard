@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 # Set page layout and title
 st.set_page_config(page_title="AWH Dashboard", layout="wide")
 
-# --- Refresh Tracking ---
+# --- Initialize session state ---
 if "last_refresh" not in st.session_state:
     st.session_state.last_refresh = datetime.now()
 
@@ -25,10 +25,8 @@ with st.sidebar:
         refresh_in = 0
     st.markdown(f"⏳ Auto refresh in: `{refresh_in}` seconds")
 
-# --- Auto refresh every 10 minutes ---
-if datetime.now() - st.session_state.last_refresh > timedelta(minutes=10):
-    st.session_state.last_refresh = datetime.now()
-    st.experimental_rerun()
+# --- Auto refresh trigger (safe) ---
+refresh_due = datetime.now() - st.session_state.last_refresh > timedelta(minutes=10)
 
 # --- Load Station List ---
 station_list = get_station_list()
@@ -50,3 +48,8 @@ df = process_data(df_raw, intake_area)
 
 # --- Display Dashboard ---
 render_data_section(df, selected_station, selected_fields)
+
+# --- Trigger rerun at the end only if due ---
+if refresh_due:
+    st.session_state.last_refresh = datetime.now()
+    st.experimental_rerun()
