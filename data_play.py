@@ -18,12 +18,12 @@ def calculate_absolute_humidity(temp_c, rel_humidity):
 def process_data(df):
     df = df.copy()
 
-    # Sort and ensure timestamp format
+    # Ensure timestamp is datetime and sort
     if "timestamp" in df.columns:
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df = df.sort_values("timestamp")
 
-    # ✅ Rename fields for clarity
+    # Rename columns
     df.rename(columns={
         "velocity": "intake_air_velocity (m/s)",
         "temperature": "intake_air_temperature (C)",
@@ -33,43 +33,39 @@ def process_data(df):
         "env_humidity": "outtake_air_humidity (%)"
     }, inplace=True)
 
-    print("✅ Renamed columns:", df.columns.tolist())
+    print("✅ Columns after renaming:", df.columns.tolist())
 
-    # 🧪 Add placeholder columns
+    # Add placeholder columns
     df["harvesting_efficiency"] = None
     df["water_production"] = None
     df["absolute_intake_air_humidity"] = None
     df["absolute_outtake_air_humidity"] = None
 
-    # 🔍 Intake Air Humidity
+    # Calculate absolute intake humidity
     if "intake_air_temperature (C)" in df.columns and "intake_air_humidity (%)" in df.columns:
-        df["absolute_intake_air_humidity"] = df.apply(
-            lambda row: calculate_absolute_humidity(
-                float(row["intake_air_temperature (C)"]),
-                float(row["intake_air_humidity (%)"])
-            ) if pd.notnull(row["intake_air_temperature (C)"]) and pd.notnull(row["intake_air_humidity (%)"])
-            else None,
+        valid_rows = df["intake_air_temperature (C)"].notnull() & df["intake_air_humidity (%)"].notnull()
+        df.loc[valid_rows, "absolute_intake_air_humidity"] = df.loc[valid_rows].apply(
+            lambda row: calculate_absolute_humidity(float(row["intake_air_temperature (C)"]),
+                                                    float(row["intake_air_humidity (%)"])),
             axis=1
         )
     else:
-        print("⚠️ Missing intake air columns. Skipping absolute_intake_air_humidity.")
+        print("⚠️ Intake air columns not found. Skipping intake absolute humidity.")
 
-    # 🔍 Outtake Air Humidity
+    # Calculate absolute outtake humidity
     if "outtake_air_temperature (C)" in df.columns and "outtake_air_humidity (%)" in df.columns:
-        print("\n📊 Checking outtake humidity inputs:")
-        print(df[["outtake_air_temperature (C)", "outtake_air_humidity (%)"]].head())
-        print("Non-null values:", df[["outtake_air_temperature (C)", "outtake_air_humidity (%)"]].notnull().sum())
-        print("Data types:", df[["outtake_air_temperature (C)", "outtake_air_humidity (%)"]].dtypes)
+        print("\n🧪 DEBUG outtake data preview:")
+        print(df[["outtake_air_temperature (C)", "outtake_air_humidity (%)"]].head(10))
+        print("Non-null counts:")
+        print(df[["outtake_air_temperature (C)", "outtake_air_humidity (%)"]].notnull().sum())
 
-        df["absolute_outtake_air_humidity"] = df.apply(
-            lambda row: calculate_absolute_humidity(
-                float(row["outtake_air_temperature (C)"]),
-                float(row["outtake_air_humidity (%)"])
-            ) if pd.notnull(row["outtake_air_temperature (C)"]) and pd.notnull(row["outtake_air_humidity (%)"])
-            else None,
+        valid_rows = df["outtake_air_temperature (C)"].notnull() & df["outtake_air_humidity (%)"].notnull()
+        df.loc[valid_rows, "absolute_outtake_air_humidity"] = df.loc[valid_rows].apply(
+            lambda row: calculate_absolute_humidity(float(row["outtake_air_temperature (C)"]),
+                                                    float(row["outtake_air_humidity (%)"])),
             axis=1
         )
     else:
-        print("⚠️ Missing outtake air columns. Skipping absolute_outtake_air_humidity.")
+        print("⚠️ Outtake air columns not found. Skipping outtake absolute humidity.")
 
     return df
