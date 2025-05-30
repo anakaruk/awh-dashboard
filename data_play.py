@@ -34,7 +34,7 @@ def calculate_water_production(weight_series):
 
     return water_production
 
-def process_data(df, intake_area=1.0):  # intake_area from UI
+def process_data(df, intake_area=1.0):
     df = df.copy()
 
     print("📋 Original columns:", df.columns.tolist())
@@ -43,7 +43,7 @@ def process_data(df, intake_area=1.0):  # intake_area from UI
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df = df.sort_values("timestamp")
 
-    # Rename raw field names to display names
+    # Rename raw fields
     rename_map = {
         "velocity": "intake_air_velocity (m/s)",
         "temperature": "intake_air_temperature (C)",
@@ -59,12 +59,13 @@ def process_data(df, intake_area=1.0):  # intake_area from UI
 
     print("✅ Renamed columns:", df.columns.tolist())
 
-    # Initialize calculated columns
+    # Init calculated fields
     df["absolute_intake_air_humidity"] = None
     df["absolute_outtake_air_humidity"] = None
+    df["accumulated_intake_water"] = None
     df["harvesting_efficiency"] = None
 
-    # Calculate absolute intake humidity
+    # Absolute humidity
     if "intake_air_temperature (C)" in df.columns and "intake_air_humidity (%)" in df.columns:
         df["absolute_intake_air_humidity"] = df.apply(
             lambda row: calculate_absolute_humidity(float(row["intake_air_temperature (C)"]),
@@ -74,7 +75,6 @@ def process_data(df, intake_area=1.0):  # intake_area from UI
             axis=1
         )
 
-    # Calculate absolute outtake humidity
     if "outtake_air_temperature (C)" in df.columns and "outtake_air_humidity (%)" in df.columns:
         df["absolute_outtake_air_humidity"] = df.apply(
             lambda row: calculate_absolute_humidity(float(row["outtake_air_temperature (C)"]),
@@ -84,27 +84,38 @@ def process_data(df, intake_area=1.0):  # intake_area from UI
             axis=1
         )
 
-    # Calculate water production from weight readings
+    # Water production
     if "weight" in df.columns:
         df["water_production"] = calculate_water_production(df["weight"])
     else:
         print("⚠️ No 'weight' column found for water production")
 
-    # Calculate harvesting efficiency
-    required_cols = ["water_production", "absolute_intake_air_humidity", "intake_air_velocity (m/s)"]
-    if all(col in df.columns for col in required_cols):
+    # ✅ Intake water flow per row
+    if "absolute_intake_air_humidity" in df.columns and "intake_air_velocity (m/s)" in df.columns:
+        intake_water = []
+        accumulated = 0
+
+        for _, row in df.iterrows():
+            ah = row.get("absolute_intake_air_humidity")
+            vel = row.get("intake_air_velocity (m/s)")
+
+            if pd.notnull(ah) and pd.notnull(vel) and vel > 0:
+                vel_m_s = vel / 3.6
+                intake = ah * vel_m_s * intake_area * 0.3
+                accumulated += intake
+                intake_water.append(accumulated)
+            else:
+                intake_water.append(None)
+
+        df["accumulated_intake_water"] = intake_water
+
+    # ✅ Harvesting efficiency = [water production / accumulated intake water] / 100
+    if "water_production" in df.columns and "accumulated_intake_water" in df.columns:
         df["harvesting_efficiency"] = df.apply(
-            lambda row: round(
-                row["water_production"] / (
-                    row["absolute_intake_air_humidity"] *
-                    row["intake_air_velocity (m/s)"] *
-                    intake_area
-                ), 3)
+            lambda row: round((row["water_production"] / row["accumulated_intake_water"]) / 100, 5)
             if pd.notnull(row["water_production"]) and
-               pd.notnull(row["absolute_intake_air_humidity"]) and
-               pd.notnull(row["intake_air_velocity (m/s)"]) and
-               row["absolute_intake_air_humidity"] > 0 and
-               row["intake_air_velocity (m/s)"] > 0
+               pd.notnull(row["accumulated_intake_water"]) and
+               row["accumulated_intake_water"] > 0
             else None,
             axis=1
         )
