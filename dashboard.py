@@ -17,7 +17,7 @@ with st.sidebar:
 
     if st.button("🔄 Refresh Data Now"):
         st.session_state.last_refresh = datetime.now()
-        st.experimental_rerun()
+        st.rerun()  # ✅ updated from st.experimental_rerun()
 
     st.markdown(f"🕒 Last refreshed: `{st.session_state.last_refresh.strftime('%H:%M:%S')}`")
     refresh_in = 600 - int((datetime.now() - st.session_state.last_refresh).total_seconds())
@@ -25,7 +25,7 @@ with st.sidebar:
         refresh_in = 0
     st.markdown(f"⏳ Auto refresh in: `{refresh_in}` seconds")
 
-# --- Auto refresh trigger (safe) ---
+# --- Auto refresh every 10 minutes ---
 refresh_due = datetime.now() - st.session_state.last_refresh > timedelta(minutes=10)
 
 # --- Load Station List ---
@@ -52,4 +52,4 @@ render_data_section(df, selected_station, selected_fields)
 # --- Trigger rerun at the end only if due ---
 if refresh_due:
     st.session_state.last_refresh = datetime.now()
-    st.experimental_rerun()
+    st.rerun()  # ✅ updated from st.experimental_rerun()
