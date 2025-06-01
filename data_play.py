@@ -27,7 +27,7 @@ def calculate_water_production(weight_series):
         elif weight >= prev:
             total += (weight - prev)
         else:
-            # Reset detected, add nothing
+            # Reset detected, do not add anything
             pass
 
         water_production.append(total)
@@ -66,7 +66,7 @@ def process_data(df, intake_area=1.0):
     df["accumulated_intake_water"] = None
     df["harvesting_efficiency"] = None
 
-    # Absolute humidity
+    # Absolute humidity (intake)
     if "intake_air_temperature (C)" in df.columns and "intake_air_humidity (%)" in df.columns:
         df["absolute_intake_air_humidity"] = df.apply(
             lambda row: calculate_absolute_humidity(
@@ -77,6 +77,7 @@ def process_data(df, intake_area=1.0):
             axis=1
         )
 
+    # Absolute humidity (outtake)
     if "outtake_air_temperature (C)" in df.columns and "outtake_air_humidity (%)" in df.columns:
         df["absolute_outtake_air_humidity"] = df.apply(
             lambda row: calculate_absolute_humidity(
@@ -104,7 +105,7 @@ def process_data(df, intake_area=1.0):
 
             if pd.notnull(ah) and pd.notnull(vel) and vel > 0:
                 vel_m_s = vel / 3.6  # Convert km/h to m/s if needed
-                intake = ah * vel_m_s * intake_area * 0.3  # 0.3 is the sampling interval or scaling
+                intake = ah * vel_m_s * intake_area * 0.3  # 0.3 = estimated sampling time window (s)
                 accumulated += intake
                 intake_water.append(accumulated)
             else:
@@ -122,5 +123,20 @@ def process_data(df, intake_area=1.0):
             else None,
             axis=1
         )
+
+    # Normalize and accumulate power data in kWh
+    if "timestamp" in df.columns and "power" in df.columns:
+        try:
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
+            df = df.sort_values("timestamp")
+            frequency = df["timestamp"].diff().median()
+            if pd.notnull(frequency):
+                freq_hours = frequency.total_seconds() / 3600
+                df["energy_step (kWh)"] = (df["power"] * freq_hours) / 1000
+                df["accumulated_energy (kWh)"] = df["energy_step (kWh)"].cumsum()
+            else:
+                print("⚠️ Could not determine timestamp frequency.")
+        except Exception as e:
+            print(f"❌ Error calculating energy: {e}")
 
     return df
