@@ -26,6 +26,7 @@ def render_controls(station_list):
     # Field checkboxes
     show_eff = st.sidebar.checkbox("⚙️ Harvesting Efficiency", value=True)
     show_prod = st.sidebar.checkbox("💧 Water Production", value=True)
+    show_power_consumption = st.sidebar.checkbox("🔋 Power Consumption (kWh)", value=True)
     show_current = st.sidebar.checkbox("🔌 Current", value=True)
     show_power = st.sidebar.checkbox("⚡ Power", value=True)
     show_temp_in = st.sidebar.checkbox("🌡️ Intake Temp", value=True)
@@ -40,6 +41,7 @@ def render_controls(station_list):
     selected_fields = ["timestamp"]
     if show_eff: selected_fields.append("harvesting_efficiency")
     if show_prod: selected_fields.append("water_production")
+    if show_power_consumption: selected_fields.append("accumulated_energy (kWh)")
     if show_current: selected_fields.append("current")
     if show_power: selected_fields.append("power")
     if show_temp_in: selected_fields.append("intake_air_temperature (C)")
@@ -75,7 +77,7 @@ def render_data_section(df, station_name, selected_fields):
             st.download_button(
                 label=f"⬇️ Download `{field}` CSV",
                 data=df[["timestamp", field]].to_csv(index=False),
-                file_name=f"{station_name}_{field}.csv",
+                file_name=f"{station_name}_{field.replace(' ', '_')}.csv",
                 mime="text/csv"
             )
 
