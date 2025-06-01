@@ -27,7 +27,8 @@ def calculate_water_production(weight_series):
         elif weight >= prev:
             total += (weight - prev)
         else:
-            total += weight  # Reset occurred
+            # Reset detected, add nothing
+            pass
 
         water_production.append(total)
         prev = weight
@@ -68,18 +69,20 @@ def process_data(df, intake_area=1.0):
     # Absolute humidity
     if "intake_air_temperature (C)" in df.columns and "intake_air_humidity (%)" in df.columns:
         df["absolute_intake_air_humidity"] = df.apply(
-            lambda row: calculate_absolute_humidity(float(row["intake_air_temperature (C)"]),
-                                                    float(row["intake_air_humidity (%)"]))
-            if pd.notnull(row["intake_air_temperature (C)"]) and pd.notnull(row["intake_air_humidity (%)"])
+            lambda row: calculate_absolute_humidity(
+                float(row["intake_air_temperature (C)"]),
+                float(row["intake_air_humidity (%)"])
+            ) if pd.notnull(row["intake_air_temperature (C)"]) and pd.notnull(row["intake_air_humidity (%)"])
             else None,
             axis=1
         )
 
     if "outtake_air_temperature (C)" in df.columns and "outtake_air_humidity (%)" in df.columns:
         df["absolute_outtake_air_humidity"] = df.apply(
-            lambda row: calculate_absolute_humidity(float(row["outtake_air_temperature (C)"]),
-                                                    float(row["outtake_air_humidity (%)"]))
-            if pd.notnull(row["outtake_air_temperature (C)"]) and pd.notnull(row["outtake_air_humidity (%)"])
+            lambda row: calculate_absolute_humidity(
+                float(row["outtake_air_temperature (C)"]),
+                float(row["outtake_air_humidity (%)"])
+            ) if pd.notnull(row["outtake_air_temperature (C)"]) and pd.notnull(row["outtake_air_humidity (%)"])
             else None,
             axis=1
         )
@@ -90,7 +93,7 @@ def process_data(df, intake_area=1.0):
     else:
         print("⚠️ No 'weight' column found for water production")
 
-    # ✅ Intake water flow per row
+    # Intake water accumulation
     if "absolute_intake_air_humidity" in df.columns and "intake_air_velocity (m/s)" in df.columns:
         intake_water = []
         accumulated = 0
@@ -100,8 +103,8 @@ def process_data(df, intake_area=1.0):
             vel = row.get("intake_air_velocity (m/s)")
 
             if pd.notnull(ah) and pd.notnull(vel) and vel > 0:
-                vel_m_s = vel / 3.6
-                intake = ah * vel_m_s * intake_area * 0.3
+                vel_m_s = vel / 3.6  # Convert km/h to m/s if needed
+                intake = ah * vel_m_s * intake_area * 0.3  # 0.3 is the sampling interval or scaling
                 accumulated += intake
                 intake_water.append(accumulated)
             else:
@@ -109,7 +112,7 @@ def process_data(df, intake_area=1.0):
 
         df["accumulated_intake_water"] = intake_water
 
-    # ✅ Harvesting efficiency = [water production / accumulated intake water] / 100
+    # Harvesting efficiency
     if "water_production" in df.columns and "accumulated_intake_water" in df.columns:
         df["harvesting_efficiency"] = df.apply(
             lambda row: round((row["water_production"] / row["accumulated_intake_water"]) / 100, 5)
