@@ -15,10 +15,24 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = key_path
 # 🔌 Initialize Firestore client
 db = firestore.Client()
 
-# 📡 Get list of stations
+# 📡 Get list of stations that have at least one reading
 @st.cache_data
 def get_station_list():
-    return [doc.id for doc in db.collection("stations").list_documents()]
+    station_docs = db.collection("stations").list_documents()
+    station_ids_with_data = []
+
+    for station_doc in station_docs:
+        readings = (
+            db.collection("stations")
+              .document(station_doc.id)
+              .collection("readings")
+              .limit(1)
+              .stream()
+        )
+        if any(True for _ in readings):  # Has at least one document
+            station_ids_with_data.append(station_doc.id)
+
+    return sorted(station_ids_with_data)
 
 # 📥 Load data for a specific station, sorted by timestamp
 @st.cache_data
@@ -31,6 +45,7 @@ def load_station_data(station_id):
               .order_by("timestamp", direction=firestore.Query.ASCENDING)
               .stream()
         )
+
         records = []
         for doc in docs:
             data = doc.to_dict()
@@ -43,6 +58,7 @@ def load_station_data(station_id):
             records.append(data)
 
         return pd.DataFrame(records)
+
     except Exception as e:
         st.error(f"⚠️ Failed to load Firestore data: {e}")
         return pd.DataFrame()
