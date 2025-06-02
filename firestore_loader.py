@@ -8,12 +8,16 @@ from datetime import datetime
 # 🔐 Load credentials from Streamlit secrets
 @st.cache_resource
 def get_firestore_client():
-    service_account_info = json.loads(st.secrets["gcp_service_account"])
-    key_path = "/tmp/service_account.json"
-    with open(key_path, "w") as f:
-        json.dump(service_account_info, f)
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = key_path
-    return firestore.Client()
+    try:
+        service_account_info = json.loads(st.secrets["gcp_service_account"])
+        key_path = "/tmp/service_account.json"
+        with open(key_path, "w") as f:
+            json.dump(service_account_info, f)
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = key_path
+        return firestore.Client()
+    except Exception as e:
+        st.error(f"❌ Failed to initialize Firestore client: {e}")
+        raise
 
 # 🔌 Initialize Firestore client
 db = get_firestore_client()
@@ -31,7 +35,6 @@ def get_station_list():
                 station_ids_with_data.append(station_doc.id)
 
         return sorted(station_ids_with_data)
-
     except Exception as e:
         st.error(f"❌ Error loading station list: {e}")
         return []
@@ -52,19 +55,25 @@ def load_station_data(station_id):
             data = doc.to_dict()
             data["id"] = doc.id
 
-            # Safely convert Firestore timestamp
             ts = data.get("timestamp")
             if hasattr(ts, "to_datetime"):
                 data["timestamp"] = ts.to_datetime()
             elif isinstance(ts, datetime):
                 data["timestamp"] = ts
             else:
-                data["timestamp"] = None
+                data["timestamp"] = None  # You can replace with datetime.utcnow() if needed
 
             records.append(data)
 
         df = pd.DataFrame(records)
-        return df.sort_values("timestamp") if not df.empty else df
+
+        if df.empty:
+            st.info(f"ℹ️ No records found for station `{station_id}`.")
+        else:
+            df = df.dropna(subset=["timestamp"])  # Ensure no null timestamps
+            df = df.sort_values("timestamp")
+
+        return df
 
     except Exception as e:
         st.error(f"❌ Failed to load data for station `{station_id}`: {e}")
