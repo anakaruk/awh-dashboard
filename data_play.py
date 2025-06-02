@@ -29,7 +29,7 @@ def calculate_water_production(weight_series):
             # Reset detected, do not add anything
             pass
 
-        water_production.append(total)
+        water_production.append(total / 1000)  # Convert from grams to liters
         prev = weight
 
     return water_production
@@ -90,6 +90,7 @@ def process_data(df, intake_area=1.0):
 
     if "absolute_intake_air_humidity" in df.columns and "intake_air_velocity (m/s)" in df.columns:
         intake_water = []
+        velocity_collection = []
         accumulated = 0
 
         for _, row in df.iterrows():
@@ -101,10 +102,13 @@ def process_data(df, intake_area=1.0):
                 intake = ah * vel_m_s * intake_area * 0.3
                 accumulated += intake
                 intake_water.append(accumulated)
+                velocity_collection.append(vel)
             else:
                 intake_water.append(None)
+                velocity_collection.append(None)
 
         df["accumulated_intake_water"] = intake_water
+        df["collected_velocity (m/s)"] = velocity_collection
 
     if "water_production" in df.columns and "accumulated_intake_water" in df.columns:
         df["harvesting_efficiency"] = df.apply(
