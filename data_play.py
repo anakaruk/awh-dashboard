@@ -61,6 +61,7 @@ def process_data(df, intake_area=1.0):
     df["absolute_intake_air_humidity"] = None
     df["absolute_outtake_air_humidity"] = None
     df["accumulated_intake_water"] = None
+    df["collected_velocity (m/s)"] = None
     df["harvesting_efficiency"] = None
 
     if "intake_air_temperature (C)" in df.columns and "intake_air_humidity (%)" in df.columns:
@@ -111,12 +112,16 @@ def process_data(df, intake_area=1.0):
         df["accumulated_intake_water"] = intake_water
         df["collected_velocity (m/s)"] = velocity_collection
 
-    if "water_production" in df.columns and "accumulated_intake_water" in df.columns:
+    # Step-wise difference for accurate harvesting efficiency
+    if "accumulated_intake_water" in df.columns:
+        df["intake_step (L)"] = df["accumulated_intake_water"].diff()
+    if "water_production" in df.columns:
+        df["production_step (L)"] = df["water_production"].diff()
+
+    if "production_step (L)" in df.columns and "intake_step (L)" in df.columns:
         df["harvesting_efficiency"] = df.apply(
-            lambda row: round((row["water_production"] * 100 / row["accumulated_intake_water"]), 5)
-            if pd.notnull(row["water_production"]) and
-               pd.notnull(row["accumulated_intake_water"]) and
-               row["accumulated_intake_water"] > 0
+            lambda row: round((row["production_step (L)"] * 100 / row["intake_step (L)"]), 2)
+            if pd.notnull(row["production_step (L)"]) and pd.notnull(row["intake_step (L)"]) and row["intake_step (L)"] > 0
             else None,
             axis=1
         )
@@ -127,22 +132,4 @@ def process_data(df, intake_area=1.0):
             df = df.sort_values("timestamp")
             frequency = df["timestamp"].diff().median()
             if pd.notnull(frequency):
-                freq_hours = frequency.total_seconds() / 3600
-                df["energy_step (kWh)"] = (df["power"] * freq_hours) / 1000
-                df["accumulated_energy (kWh)"] = df["energy_step (kWh)"].cumsum()
-            else:
-                print("⚠️ Could not determine timestamp frequency.")
-        except Exception as e:
-            print(f"❌ Error calculating energy: {e}")
-
-    if "accumulated_energy (kWh)" in df.columns and "water_production" in df.columns:
-        df["energy_per_liter (kWh/L)"] = df.apply(
-            lambda row: round((row["accumulated_energy (kWh)"] * 1000 / row["water_production"]), 5)
-            if pd.notnull(row["accumulated_energy (kWh)"]) and 
-               pd.notnull(row["water_production"]) and 
-               row["water_production"] > 0
-            else 0,
-            axis=1
-        )
-
-    return df
+                freq_hours = frequency.total_s
