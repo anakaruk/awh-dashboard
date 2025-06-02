@@ -118,4 +118,16 @@ def process_data(df, intake_area=1.0):
             axis=1
         )
 
+    # Harvesting Efficiency (%)
+    if "accumulated_intake_water" in df.columns and "water_production" in df.columns:
+        df["intake_step"] = df["accumulated_intake_water"].diff()
+        df["production_step"] = df["water_production"].diff()
+
+        df["harvesting_efficiency"] = df.apply(
+            lambda row: round((row["production_step"] / row["intake_step"]) * 100, 2)
+            if pd.notnull(row["production_step"]) and pd.notnull(row["intake_step"]) and row["intake_step"] > 0
+            else 0.0,
+            axis=1
+        )
+
     return df
