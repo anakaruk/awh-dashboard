@@ -57,4 +57,21 @@ else:
             df_raw["absolute_outtake_air_humidity"] = df_raw.apply(
                 lambda row: calculate_absolute_humidity(
                     row["outtake_air_temperature (C)"], row["outtake_air_humidity (%)"]
-                ), a
+                ), axis=1
+            )
+
+        # 💧 Water Production
+        if "weight" in df_raw:
+            df_raw["water_production"] = calculate_water_production(df_raw["weight"])
+
+        # ⚡ Efficiency
+        if "water_production" in df_raw and "accumulated_energy (kWh)" in df_raw:
+            df_raw["energy_per_liter (kWh/L)"] = df_raw["accumulated_energy (kWh)"] / (df_raw["water_production"] / 1000 + 1e-6)
+            df_raw["harvesting_efficiency"] = df_raw["water_production"] / (df_raw["accumulated_energy (kWh)"] + 1e-6)
+
+        # 🕓 Timestamp
+        latest_time = df_raw["timestamp"].max()
+        st.markdown(f"**Last Updated:** {latest_time.strftime('%Y-%m-%d %H:%M:%S')}")
+
+        # 📊 Render Display
+        render_data_section(df_raw, station, selected_fields)
