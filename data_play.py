@@ -132,4 +132,22 @@ def process_data(df, intake_area=1.0):
             df = df.sort_values("timestamp")
             frequency = df["timestamp"].diff().median()
             if pd.notnull(frequency):
-                freq_hours = frequency.total_s
+                freq_hours = frequency.total_seconds() / 3600
+                df["energy_step (kWh)"] = (df["power"] * freq_hours) / 1000
+                df["accumulated_energy (kWh)"] = df["energy_step (kWh)"].cumsum()
+            else:
+                print("⚠️ Could not determine timestamp frequency.")
+        except Exception as e:
+            print(f"❌ Error calculating energy: {e}")
+
+    if "accumulated_energy (kWh)" in df.columns and "water_production" in df.columns:
+        df["energy_per_liter (kWh/L)"] = df.apply(
+            lambda row: round((row["accumulated_energy (kWh)"] * 1000 / row["water_production"]), 5)
+            if pd.notnull(row["accumulated_energy (kWh)"]) and 
+               pd.notnull(row["water_production"]) and 
+               row["water_production"] > 0
+            else 0,
+            axis=1
+        )
+
+    return df
