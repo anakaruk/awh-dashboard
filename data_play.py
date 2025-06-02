@@ -42,6 +42,8 @@ def process_data(df, intake_area=1.0):
     if "timestamp" in df.columns:
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df = df.sort_values("timestamp")
+        df["sample_interval"] = df["timestamp"].diff().dt.total_seconds()
+        df["sample_interval"] = df["sample_interval"].fillna(method="bfill").fillna(method="ffill")
 
     rename_map = {
         "velocity": "intake_air_velocity (m/s)",
@@ -88,7 +90,7 @@ def process_data(df, intake_area=1.0):
     else:
         print("⚠️ No 'weight' column found for water production")
 
-    if "absolute_intake_air_humidity" in df.columns and "intake_air_velocity (m/s)" in df.columns:
+    if "absolute_intake_air_humidity" in df.columns and "intake_air_velocity (m/s)" in df.columns and "sample_interval" in df.columns:
         intake_water = []
         velocity_collection = []
         accumulated = 0
@@ -96,10 +98,11 @@ def process_data(df, intake_area=1.0):
         for _, row in df.iterrows():
             ah = row.get("absolute_intake_air_humidity")
             vel = row.get("intake_air_velocity (m/s)")
+            interval = row.get("sample_interval")
 
-            if pd.notnull(ah) and pd.notnull(vel) and vel > 0:
+            if pd.notnull(ah) and pd.notnull(vel) and vel > 0 and pd.notnull(interval):
                 vel_m_s = vel / 3.6
-                intake = ah * vel_m_s * intake_area * 0.3  # g
+                intake = ah * vel_m_s * intake_area * interval  # g
                 intake_L = intake / 1000  # Convert to liters
                 accumulated += intake_L
                 intake_water.append(accumulated)
