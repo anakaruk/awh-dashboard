@@ -99,8 +99,9 @@ def process_data(df, intake_area=1.0):
 
             if pd.notnull(ah) and pd.notnull(vel) and vel > 0:
                 vel_m_s = vel / 3.6
-                intake = ah * vel_m_s * intake_area * 0.3
-                accumulated += intake
+                intake = ah * vel_m_s * intake_area * 0.3  # g
+                intake_L = intake / 1000  # Convert to liters
+                accumulated += intake_L
                 intake_water.append(accumulated)
                 velocity_collection.append(vel)
             else:
@@ -112,7 +113,7 @@ def process_data(df, intake_area=1.0):
 
     if "water_production" in df.columns and "accumulated_intake_water" in df.columns:
         df["harvesting_efficiency"] = df.apply(
-            lambda row: round((row["water_production"] / row["accumulated_intake_water"]) / 100, 5)
+            lambda row: round((row["water_production"] * 100 / row["accumulated_intake_water"]), 5)
             if pd.notnull(row["water_production"]) and
                pd.notnull(row["accumulated_intake_water"]) and
                row["accumulated_intake_water"] > 0
