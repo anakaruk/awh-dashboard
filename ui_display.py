@@ -14,37 +14,27 @@ def render_controls(station_list):
     intake_area_label = st.sidebar.selectbox("🧮 Intake Area (m²)", list(intake_area_options.keys()))
     intake_area = intake_area_options[intake_area_label]
 
-    # Ordered and labeled field checkboxes
-    show_eff = st.sidebar.checkbox("❄️ Harvesting Efficiency (%)", value=True)
-    show_prod = st.sidebar.checkbox("💧 Water Production (L)", value=True)
-    show_energy_per_liter = st.sidebar.checkbox("🔋 Energy Per Liter (kW.hr/L)", value=True)
-    show_power_consumption = st.sidebar.checkbox("🔋 Power Consumption (kW.hr)", value=True)
-    show_abs_in = st.sidebar.checkbox("🌫️ Abs. Intake humidity (g/m3)", value=True)
-    show_abs_out = st.sidebar.checkbox("🌫️ Abs. Outtake humidity (g/m3)", value=True)
-    show_temp_in = st.sidebar.checkbox("🌡️ Intake temperature (°C)", value=True)
-    show_humid_in = st.sidebar.checkbox("💨 Intake humidity (%)", value=True)
-    show_velocity_in = st.sidebar.checkbox("↘ Intake velocity (m/s)", value=True)
-    show_temp_out = st.sidebar.checkbox("🔥 Outtake temperature (°C)", value=True)
-    show_humid_out = st.sidebar.checkbox("💨 Outtake humidity (%)", value=True)
-    show_velocity_out = st.sidebar.checkbox("↗ Outtake velocity (m/s)", value=True)
-    show_current = st.sidebar.checkbox("🔌 Current (A)", value=True)
-    show_power = st.sidebar.checkbox("⚡ Power (W)", value=True)
+    field_options = [
+        ("❄️ Harvesting Efficiency (%)", "harvesting_efficiency"),
+        ("💧 Water Production (L)", "water_production"),
+        ("🔋 Energy Per Liter (kW.hr/L)", "energy_per_liter (kWh/L)"),
+        ("🔋 Power Consumption (kW.hr)", "accumulated_energy (kWh)"),
+        ("🌫️ Abs. Intake humidity (g/m3)", "absolute_intake_air_humidity"),
+        ("🌫️ Abs. Outtake humidity (g/m3)", "absolute_outtake_air_humidity"),
+        ("🌡️ Intake temperature (°C)", "intake_air_temperature (C)"),
+        ("💨 Intake humidity (%)", "intake_air_humidity (%)"),
+        ("↘ Intake velocity (m/s)", "intake_air_velocity (m/s)"),
+        ("🔥 Outtake temperature (°C)", "outtake_air_temperature (C)"),
+        ("💨 Outtake humidity (%)", "outtake_air_humidity (%)"),
+        ("↗ Outtake velocity (m/s)", "outtake_air_velocity (m/s)"),
+        ("🔌 Current (A)", "current"),
+        ("⚡ Power (W)", "power"),
+    ]
 
     selected_fields = ["timestamp"]
-    if show_eff: selected_fields.append("harvesting_efficiency")
-    if show_prod: selected_fields.append("water_production")
-    if show_energy_per_liter: selected_fields.append("energy_per_liter (kWh/L)")
-    if show_power_consumption: selected_fields.append("accumulated_energy (kWh)")
-    if show_abs_in: selected_fields.append("absolute_intake_air_humidity")
-    if show_abs_out: selected_fields.append("absolute_outtake_air_humidity")
-    if show_temp_in: selected_fields.append("intake_air_temperature (C)")
-    if show_humid_in: selected_fields.append("intake_air_humidity (%)")
-    if show_velocity_in: selected_fields.append("intake_air_velocity (m/s)")
-    if show_temp_out: selected_fields.append("outtake_air_temperature (C)")
-    if show_humid_out: selected_fields.append("outtake_air_humidity (%)")
-    if show_velocity_out: selected_fields.append("outtake_air_velocity (m/s)")
-    if show_current: selected_fields.append("current")
-    if show_power: selected_fields.append("power")
+    for label, col in field_options:
+        if st.sidebar.checkbox(label, value=(col == "harvesting_efficiency")):
+            selected_fields.append(col)
 
     return selected_station_name, selected_fields, intake_area
 
@@ -80,9 +70,14 @@ def render_data_section(df, station_name, selected_fields):
         with col2:
             st.markdown("#### 📈 Scatter Plot")
 
-            # Safe plotting step-by-step
+            # Ensure numeric values and drop NaNs
             df_sorted[field] = pd.to_numeric(df_sorted[field], errors="coerce")
             plot_data = df_sorted[["Time", "Date", field]].dropna()
+
+            excluded_points = 0
+            if field == "harvesting_efficiency":
+                excluded_points = (plot_data[field] > 50).sum()
+                plot_data = plot_data[plot_data[field] <= 50]
 
             if plot_data.empty:
                 st.warning(f"⚠️ No data available to plot for `{field}`.")
@@ -101,3 +96,7 @@ def render_data_section(df, station_name, selected_fields):
             ).properties(width="container", height=300)
 
             st.altair_chart(chart, use_container_width=True)
+
+            # Optional note if data was excluded
+            if excluded_points > 0:
+                st.caption(f"⚠️ {excluded_points} point(s) above 50% were excluded from the plot.")
