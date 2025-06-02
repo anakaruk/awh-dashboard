@@ -60,7 +60,7 @@ def render_data_section(df, station_name, selected_fields):
     # Preprocess for display
     df_sorted = df.sort_values("timestamp").copy()
     df_sorted["Date"] = df_sorted["timestamp"].dt.date
-    df_sorted["Time"] = df_sorted["timestamp"].dt.time
+    df_sorted["Time"] = df_sorted["timestamp"].dt.strftime("%H:%M:%S")  # formatted string for nominal X-axis
 
     for field in available_fields:
         st.subheader(f"📊 `{field}` Overview")
@@ -81,7 +81,7 @@ def render_data_section(df, station_name, selected_fields):
         with col2:
             st.markdown("#### 📈 Scatter Plot")
             chart = alt.Chart(df_sorted).mark_circle(size=60).encode(
-                x=alt.X('Time:T', title='Time'),
+                x=alt.X('Time:N', title='Time'),
                 y=alt.Y(field, title=field),
                 tooltip=['Date', 'Time', field]
             ).properties(width="container", height=300)
