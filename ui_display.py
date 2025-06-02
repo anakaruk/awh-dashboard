@@ -57,10 +57,9 @@ def render_data_section(df, station_name, selected_fields):
 
     available_fields = [col for col in selected_fields if col in df.columns and col != "timestamp"]
 
-    # Preprocess for display
     df_sorted = df.sort_values("timestamp").copy()
     df_sorted["Date"] = df_sorted["timestamp"].dt.date
-    df_sorted["Time"] = df_sorted["timestamp"].dt.strftime("%H:%M:%S")  # formatted string for nominal X-axis
+    df_sorted["Time"] = df_sorted["timestamp"].dt.strftime("%H:%M:%S")
 
     for field in available_fields:
         st.subheader(f"📊 `{field}` Overview")
@@ -81,17 +80,24 @@ def render_data_section(df, station_name, selected_fields):
         with col2:
             st.markdown("#### 📈 Scatter Plot")
 
-            # Cap Y-axis only for harvesting_efficiency
+            # Safe plotting step-by-step
+            df_sorted[field] = pd.to_numeric(df_sorted[field], errors="coerce")
+            plot_data = df_sorted[["Time", "Date", field]].dropna()
+
+            if plot_data.empty:
+                st.warning(f"⚠️ No data available to plot for `{field}`.")
+                continue
+
             y_axis = alt.Y(
                 field,
                 title=field,
                 scale=alt.Scale(domain=[0, 50]) if field == "harvesting_efficiency" else alt.Undefined
             )
 
-            chart = alt.Chart(df_sorted).mark_circle(size=60).encode(
-                x=alt.X('Time:N', title='Time'),
+            chart = alt.Chart(plot_data).mark_circle(size=60).encode(
+                x=alt.X("Time:N", title="Time"),
                 y=y_axis,
-                tooltip=['Date', 'Time', field]
+                tooltip=["Date", "Time", field]
             ).properties(width="container", height=300)
 
             st.altair_chart(chart, use_container_width=True)
