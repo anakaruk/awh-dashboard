@@ -6,18 +6,16 @@ def render_controls(station_list):
     st.sidebar.header("🔧 Controls")
     selected_station_name = st.sidebar.selectbox("📍 Select Station", station_list)
 
-    # Define known intake areas for specific stations
     intake_area_options = {
         "DewStand 1: 0.0507 m²": 0.0507,
         "T50 1: 0.18 m²": 0.18
     }
 
-    # Dropdown menu for intake area
     intake_area_label = st.sidebar.selectbox("🧮 Intake Area (m²)", list(intake_area_options.keys()))
     intake_area = intake_area_options[intake_area_label]
 
     # Field checkboxes
-    show_eff = st.sidebar.checkbox("⚙️ Harvesting Efficiency", value=True)
+    show_intake_water = st.sidebar.checkbox("💦 Intake Water (L)", value=True)
     show_prod = st.sidebar.checkbox("💧 Water Production", value=True)
     show_power_consumption = st.sidebar.checkbox("🔋 Power Consumption (kWh)", value=True)
     show_energy_per_liter = st.sidebar.checkbox("🔋 Energy per Liter (kWh/L)", value=True)
@@ -33,7 +31,7 @@ def render_controls(station_list):
     show_abs_out = st.sidebar.checkbox("🌫️ Abs Outtake Humidity", value=True)
 
     selected_fields = ["timestamp"]
-    if show_eff: selected_fields.append("harvesting_efficiency")
+    if show_intake_water: selected_fields.append("accumulated_intake_water")
     if show_prod: selected_fields.append("water_production")
     if show_power_consumption: selected_fields.append("accumulated_energy (kWh)")
     if show_energy_per_liter: selected_fields.append("energy_per_liter (kWh/L)")
