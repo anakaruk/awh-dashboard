@@ -3,8 +3,8 @@ import pandas as pd
 import altair as alt
 
 def render_controls(station_list):
-    st.sidebar.header("🔧 Controls")
-    selected_station_name = st.sidebar.selectbox("📍 Select Station", station_list)
+    st.sidebar.header("\U0001F527 Controls")
+    selected_station_name = st.sidebar.selectbox("\U0001F4CD Select Station", station_list)
 
     # Initialize session state for intake areas if not already
     if "intake_areas" not in st.session_state:
@@ -15,7 +15,7 @@ def render_controls(station_list):
 
     # Input for intake area per station
     intake_area = st.sidebar.number_input(
-        "🧮 Intake Area (m²)",
+        "\U0001F9EE Intake Area (m²)",
         min_value=0.01,
         max_value=100.0,
         value=default_area,
@@ -24,20 +24,20 @@ def render_controls(station_list):
     st.session_state.intake_areas[selected_station_name] = intake_area
 
     # Field checkboxes
-    show_eff = st.sidebar.checkbox("⚙️ Harvesting Efficiency", value=True)
-    show_prod = st.sidebar.checkbox("💧 Water Production", value=True)
-    show_power_consumption = st.sidebar.checkbox("🔋 Power Consumption (kWh)", value=True)
-    show_energy_per_liter = st.sidebar.checkbox("🔋 Energy per Liter (kWh/L)", value=True)
-    show_current = st.sidebar.checkbox("🔌 Current", value=True)
-    show_power = st.sidebar.checkbox("⚡ Power", value=True)
-    show_temp_in = st.sidebar.checkbox("🌡️ Intake Temp", value=True)
-    show_humid_in = st.sidebar.checkbox("💨 Intake Humidity", value=True)
-    show_velocity_in = st.sidebar.checkbox("↘ Intake Velocity", value=True)
-    show_abs_in = st.sidebar.checkbox("🌫️ Abs Intake Humidity", value=True)
-    show_temp_out = st.sidebar.checkbox("🔥 Outtake Temp", value=True)
-    show_humid_out = st.sidebar.checkbox("💨 Outtake Humidity", value=True)
-    show_velocity_out = st.sidebar.checkbox("↗ Outtake Velocity", value=True)
-    show_abs_out = st.sidebar.checkbox("🌫️ Abs Outtake Humidity", value=True)
+    show_eff = st.sidebar.checkbox("\u2699\ufe0f Harvesting Efficiency", value=True)
+    show_prod = st.sidebar.checkbox("\U0001F4A7 Water Production", value=True)
+    show_power_consumption = st.sidebar.checkbox("\U0001F50B Power Consumption (kWh)", value=True)
+    show_energy_per_liter = st.sidebar.checkbox("\U0001F50B Energy per Liter (kWh/L)", value=True)
+    show_current = st.sidebar.checkbox("\U0001F50C Current", value=True)
+    show_power = st.sidebar.checkbox("\u26A1 Power", value=True)
+    show_temp_in = st.sidebar.checkbox("\U0001F321\ufe0f Intake Temp", value=True)
+    show_humid_in = st.sidebar.checkbox("\U0001F4A8 Intake Humidity", value=True)
+    show_velocity_in = st.sidebar.checkbox("\u2198 Intake Velocity", value=True)
+    show_abs_in = st.sidebar.checkbox("\U0001F32B\ufe0f Abs Intake Humidity", value=True)
+    show_temp_out = st.sidebar.checkbox("\U0001F525 Outtake Temp", value=True)
+    show_humid_out = st.sidebar.checkbox("\U0001F4A8 Outtake Humidity", value=True)
+    show_velocity_out = st.sidebar.checkbox("\u2197 Outtake Velocity", value=True)
+    show_abs_out = st.sidebar.checkbox("\U0001F32B\ufe0f Abs Outtake Humidity", value=True)
 
     selected_fields = ["timestamp"]
     if show_eff: selected_fields.append("harvesting_efficiency")
@@ -56,7 +56,6 @@ def render_controls(station_list):
     if show_abs_out: selected_fields.append("absolute_outtake_air_humidity")
 
     return selected_station_name, selected_fields, intake_area
-
 
 def render_data_section(df, station_name, selected_fields):
     st.title(f"📊 AWH Dashboard – {station_name}")
