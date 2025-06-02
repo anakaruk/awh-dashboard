@@ -26,13 +26,15 @@ def calculate_water_production(weight_series):
         elif weight >= prev:
             total += (weight - prev)
         else:
-            # Reset detected, do not add anything
-            pass
+            # Reset detected; treat current value as new cycle
+            total += weight
 
         water_production.append(total)
         prev = weight
 
-    return water_production
+    # Convert from grams to liters (1L = 1000g)
+    water_production_liters = [round(w / 1000, 5) if w is not None else None for w in water_production]
+    return water_production_liters
 
 def process_data(df, intake_area=1.0):
     df = df.copy()
@@ -97,10 +99,9 @@ def process_data(df, intake_area=1.0):
             vel = row.get("intake_air_velocity (m/s)")
 
             if pd.notnull(ah) and pd.notnull(vel) and vel > 0:
-                vel_m_s = vel / 3.6
-                intake = ah * vel_m_s * intake_area * 0.3
+                intake = ah * vel * intake_area * 0.3
                 accumulated += intake
-                intake_water.append(accumulated)
+                intake_water.append(round(accumulated / 1000, 5))  # convert g to L
             else:
                 intake_water.append(None)
 
@@ -108,7 +109,7 @@ def process_data(df, intake_area=1.0):
 
     if "water_production" in df.columns and "accumulated_intake_water" in df.columns:
         df["harvesting_efficiency"] = df.apply(
-            lambda row: round((row["water_production"] / row["accumulated_intake_water"]) / 100, 5)
+            lambda row: round((row["water_production"] / row["accumulated_intake_water"]) * 100, 2)
             if pd.notnull(row["water_production"]) and
                pd.notnull(row["accumulated_intake_water"]) and
                row["accumulated_intake_water"] > 0
