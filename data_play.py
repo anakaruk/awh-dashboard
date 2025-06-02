@@ -110,7 +110,7 @@ def process_data(df, intake_area=1.0):
     # Energy per liter
     if "accumulated_energy (kWh)" in df.columns and "water_production" in df.columns:
         df["energy_per_liter (kWh/L)"] = df.apply(
-            lambda row: round((row["accumulated_energy (kWh)"] * 1000 / row["water_production"]), 5)
+            lambda row: round((row["accumulated_energy (kWh)"] / row["water_production"]), 5)
             if pd.notnull(row["accumulated_energy (kWh)"]) and 
                pd.notnull(row["water_production"]) and 
                row["water_production"] > 0
