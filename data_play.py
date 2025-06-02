@@ -62,7 +62,6 @@ def process_data(df, intake_area=1.0):
     df["absolute_outtake_air_humidity"] = None
     df["accumulated_intake_water"] = None
     df["collected_velocity (m/s)"] = None
-    df["harvesting_efficiency"] = None
 
     if "intake_air_temperature (C)" in df.columns and "intake_air_humidity (%)" in df.columns:
         df["absolute_intake_air_humidity"] = df.apply(
@@ -111,20 +110,6 @@ def process_data(df, intake_area=1.0):
 
         df["accumulated_intake_water"] = intake_water
         df["collected_velocity (m/s)"] = velocity_collection
-
-    # Step-wise difference for accurate harvesting efficiency
-    if "accumulated_intake_water" in df.columns:
-        df["intake_step (L)"] = df["accumulated_intake_water"].diff()
-    if "water_production" in df.columns:
-        df["production_step (L)"] = df["water_production"].diff()
-
-    if "production_step (L)" in df.columns and "intake_step (L)" in df.columns:
-        df["harvesting_efficiency"] = df.apply(
-            lambda row: round((row["production_step (L)"] * 100 / row["intake_step (L)"]), 2)
-            if pd.notnull(row["production_step (L)"]) and pd.notnull(row["intake_step (L)"]) and row["intake_step (L)"] > 0
-            else None,
-            axis=1
-        )
 
     if "timestamp" in df.columns and "power" in df.columns:
         try:
