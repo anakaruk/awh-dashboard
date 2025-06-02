@@ -14,11 +14,15 @@ if not stations:
 else:
     station, selected_fields, intake_area = render_controls(stations)
 
+    # 🔄 Manual refresh button
+    if st.button("🔄 Refresh Data"):
+        st.experimental_rerun()
+
     df_raw = load_station_data(station)
     if df_raw.empty:
         st.warning(f"No data found for station: {station}")
     else:
-        # 🔄 Rename Firestore fields to UI display names
+        # Rename fields for UI
         df_raw.rename(columns={
             "temperature": "intake_air_temperature (C)",
             "humidity": "intake_air_humidity (%)",
@@ -29,35 +33,31 @@ else:
             "energy": "accumulated_energy (kWh)"
         }, inplace=True)
 
-        # ✅ Calculate absolute humidity if both temp & RH available
+        # Calculate derived fields
         if "intake_air_temperature (C)" in df_raw and "intake_air_humidity (%)" in df_raw:
             df_raw["absolute_intake_air_humidity"] = df_raw.apply(
                 lambda row: calculate_absolute_humidity(
-                    row["intake_air_temperature (C)"],
-                    row["intake_air_humidity (%)"]
+                    row["intake_air_temperature (C)"], row["intake_air_humidity (%)"]
                 ), axis=1
             )
 
         if "outtake_air_temperature (C)" in df_raw and "outtake_air_humidity (%)" in df_raw:
             df_raw["absolute_outtake_air_humidity"] = df_raw.apply(
                 lambda row: calculate_absolute_humidity(
-                    row["outtake_air_temperature (C)"],
-                    row["outtake_air_humidity (%)"]
+                    row["outtake_air_temperature (C)"], row["outtake_air_humidity (%)"]
                 ), axis=1
             )
 
-        # ✅ Calculate water production if weight exists
         if "weight" in df_raw:
             df_raw["water_production"] = calculate_water_production(df_raw["weight"])
 
-        # ✅ Calculate harvesting efficiency (simplified example)
         if "water_production" in df_raw and "accumulated_energy (kWh)" in df_raw:
             df_raw["energy_per_liter (kWh/L)"] = df_raw["accumulated_energy (kWh)"] / (df_raw["water_production"] / 1000 + 1e-6)
             df_raw["harvesting_efficiency"] = df_raw["water_production"] / (df_raw["accumulated_energy (kWh)"] + 1e-6)
 
-        # ⏱️ Show most recent update time
+        # Display last updated time
         latest_time = df_raw["timestamp"].max()
         st.markdown(f"**Last Updated:** {latest_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
-        # 📊 Display selected metrics
+        # Show dashboard section
         render_data_section(df_raw, station, selected_fields)
