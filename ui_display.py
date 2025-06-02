@@ -80,9 +80,17 @@ def render_data_section(df, station_name, selected_fields):
 
         with col2:
             st.markdown("#### 📈 Scatter Plot")
+
+            # Cap Y-axis only for harvesting_efficiency
+            y_axis = alt.Y(
+                field,
+                title=field,
+                scale=alt.Scale(domain=[0, 50]) if field == "harvesting_efficiency" else alt.Undefined
+            )
+
             chart = alt.Chart(df_sorted).mark_circle(size=60).encode(
                 x=alt.X('Time:N', title='Time'),
-                y=alt.Y(field, title=field),
+                y=y_axis,
                 tooltip=['Date', 'Time', field]
             ).properties(width="container", height=300)
 
