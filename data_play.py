@@ -41,9 +41,13 @@ def process_data(df, intake_area=1.0):
 
     if "timestamp" in df.columns:
         df["timestamp"] = pd.to_datetime(df["timestamp"])
-        df = df.sort_values("timestamp")
+        df = df.sort_values("timestamp").reset_index(drop=True)
         df["sample_interval"] = df["timestamp"].diff().dt.total_seconds()
-        df["sample_interval"] = df["sample_interval"].fillna(method="bfill").fillna(method="ffill")
+        if df["sample_interval"].iloc[1:].notnull().any():
+            default_interval = df["sample_interval"].iloc[1:].median()
+            df["sample_interval"] = df["sample_interval"].fillna(default_interval)
+        else:
+            df["sample_interval"] = df["sample_interval"].fillna(10)  # fallback
 
     rename_map = {
         "velocity": "intake_air_velocity (m/s)",
