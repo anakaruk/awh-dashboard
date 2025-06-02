@@ -90,33 +90,26 @@ def process_data(df, intake_area=1.0):
     else:
         print("⚠️ No 'weight' column found for water production")
 
-    if "absolute_intake_air_humidity" in df.columns and "intake_air_velocity (m/s)" in df.columns and "sample_interval" in df.columns:
-        intake_water = []
-        velocity_collection = []
+    if all(col in df.columns for col in ["absolute_intake_air_humidity", "intake_air_velocity (m/s)", "sample_interval"]):
+        intake_steps = []
         accumulated = 0
 
         for _, row in df.iterrows():
-            ah = row.get("absolute_intake_air_humidity")
-            vel = row.get("intake_air_velocity (m/s)")
-            interval = row.get("sample_interval")
+            ah = row["absolute_intake_air_humidity"]
+            vel = row["intake_air_velocity (m/s)"]
+            interval = row["sample_interval"]
 
             if pd.notnull(ah) and pd.notnull(vel) and vel > 0 and pd.notnull(interval):
-                vel_m_s = vel / 3.6
-                intake = ah * vel_m_s * intake_area * interval  # g
-                intake_L = intake / 1000  # Convert to liters
+                intake_L = ah * vel * intake_area * interval / 1000  # Convert g to L
                 accumulated += intake_L
-                intake_water.append(accumulated)
-                velocity_collection.append(vel)
+                intake_steps.append(accumulated)
             else:
-                intake_water.append(None)
-                velocity_collection.append(None)
+                intake_steps.append(None)
 
-        df["accumulated_intake_water"] = intake_water
-        df["collected_velocity (m/s)"] = velocity_collection
+        df["accumulated_intake_water"] = intake_steps
 
     if "timestamp" in df.columns and "power" in df.columns:
         try:
-            df["timestamp"] = pd.to_datetime(df["timestamp"])
             df = df.sort_values("timestamp")
             frequency = df["timestamp"].diff().median()
             if pd.notnull(frequency):
