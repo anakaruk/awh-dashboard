@@ -3,10 +3,9 @@ import math
 
 def calculate_absolute_humidity(temp_c, rel_humidity):
     try:
-        exponent = (17.67 * temp_c) / (temp_c + 243.5)
-        sat_vapor_pressure = 6.112 * math.exp(exponent)
-        vapor_pressure = rel_humidity / 100 * sat_vapor_pressure
-        abs_humidity = (vapor_pressure * 2.1674) / (273.15 + temp_c)
+        numerator = 6.112 * math.exp((17.67 * temp_c) / (temp_c + 243.5)) * rel_humidity * 2.1674
+        denominator = 273.15 + temp_c
+        abs_humidity = numerator / denominator
         return round(abs_humidity, 2)
     except Exception as e:
         print(f"Error calculating AH: {e}")
