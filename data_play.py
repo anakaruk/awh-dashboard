@@ -25,8 +25,8 @@ def calculate_water_production(weight_series):
             total = weight
         elif weight >= prev:
             total += (weight - prev)
-        # Reset detected → skip subtraction
         prev = weight
+
         water_production.append(total / 1000)  # Convert g to L
 
     return water_production
@@ -54,24 +54,34 @@ def process_data(df, intake_area=1.0):
         if old_col in df.columns:
             df.rename(columns={old_col: new_col}, inplace=True)
 
-    df["absolute_intake_air_humidity"] = df.apply(
-        lambda row: calculate_absolute_humidity(row["intake_air_temperature (C)"], row["intake_air_humidity (%)"])
-        if pd.notnull(row.get("intake_air_temperature (C)")) and pd.notnull(row.get("intake_air_humidity (%)"))
-        else None, axis=1
-    ) if "intake_air_temperature (C)" in df.columns and "intake_air_humidity (%)" in df.columns else None
+    # Calculate absolute humidity
+    if "intake_air_temperature (C)" in df.columns and "intake_air_humidity (%)" in df.columns:
+        df["absolute_intake_air_humidity"] = df.apply(
+            lambda row: calculate_absolute_humidity(
+                row["intake_air_temperature (C)"],
+                row["intake_air_humidity (%)"]
+            ) if pd.notnull(row["intake_air_temperature (C)"]) and pd.notnull(row["intake_air_humidity (%)"])
+            else None,
+            axis=1
+        )
 
-    df["absolute_outtake_air_humidity"] = df.apply(
-        lambda row: calculate_absolute_humidity(row["outtake_air_temperature (C)"], row["outtake_air_humidity (%)"])
-        if pd.notnull(row.get("outtake_air_temperature (C)")) and pd.notnull(row.get("outtake_air_humidity (%)"))
-        else None, axis=1
-    ) if "outtake_air_temperature (C)" in df.columns and "outtake_air_humidity (%)" in df.columns else None
+    if "outtake_air_temperature (C)" in df.columns and "outtake_air_humidity (%)" in df.columns:
+        df["absolute_outtake_air_humidity"] = df.apply(
+            lambda row: calculate_absolute_humidity(
+                row["outtake_air_temperature (C)"],
+                row["outtake_air_humidity (%)"]
+            ) if pd.notnull(row["outtake_air_temperature (C)"]) and pd.notnull(row["outtake_air_humidity (%)"])
+            else None,
+            axis=1
+        )
 
+    # Water production
     if "weight" in df.columns:
         df["water_production"] = calculate_water_production(df["weight"])
     else:
         print("⚠️ No 'weight' column found for water production")
 
-    # Intake water (based on absolute humidity, velocity, intake area, interval)
+    # Intake water calculation
     if all(col in df.columns for col in ["absolute_intake_air_humidity", "intake_air_velocity (m/s)", "sample_interval"]):
         accumulated = 0
         intake_water_list = []
@@ -79,16 +89,16 @@ def process_data(df, intake_area=1.0):
             ah = row["absolute_intake_air_humidity"]
             vel = row["intake_air_velocity (m/s)"]
             interval = row["sample_interval"]
-            if pd.notnull(ah) and pd.notnull(vel) and pd.notnull(interval) and vel > 0:
-                intake = ah * vel * intake_area * interval / 1000  # result in liters
+
+            if pd.notnull(ah) and pd.notnull(vel) and pd.notnull(interval):
+                intake = ah * vel * intake_area * interval / 1000 if vel > 0 else 0
                 accumulated += intake
-                intake_water_list.append(round(accumulated, 3))
-            else:
-                intake_water_list.append(None)
+            intake_water_list.append(round(accumulated, 3))
+
         df["accumulated_intake_water"] = intake_water_list
 
     # Power and energy calculations
-    if "power" in df.columns:
+    if "power" in df.columns and "timestamp" in df.columns:
         try:
             freq_seconds = df["timestamp"].diff().dt.total_seconds().median()
             freq_hours = freq_seconds / 3600 if pd.notnull(freq_seconds) else 0
@@ -97,10 +107,13 @@ def process_data(df, intake_area=1.0):
         except Exception as e:
             print(f"❌ Error calculating energy: {e}")
 
+    # Energy per liter
     if "accumulated_energy (kWh)" in df.columns and "water_production" in df.columns:
         df["energy_per_liter (kWh/L)"] = df.apply(
             lambda row: round((row["accumulated_energy (kWh)"] * 1000 / row["water_production"]), 5)
-            if pd.notnull(row["accumulated_energy (kWh)"]) and pd.notnull(row["water_production"]) and row["water_production"] > 0
+            if pd.notnull(row["accumulated_energy (kWh)"]) and 
+               pd.notnull(row["water_production"]) and 
+               row["water_production"] > 0
             else 0,
             axis=1
         )
