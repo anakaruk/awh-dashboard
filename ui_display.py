@@ -15,6 +15,7 @@ def render_controls(station_list):
     intake_area = intake_area_options[intake_area_label]
 
     # Field checkboxes
+    show_harvest_eff = st.sidebar.checkbox("⚙️ Harvesting Efficiency (%)", value=True)
     show_intake_water = st.sidebar.checkbox("💦 Intake Water (L)", value=True)
     show_prod = st.sidebar.checkbox("💧 Water Production", value=True)
     show_power_consumption = st.sidebar.checkbox("🔋 Power Consumption (kWh)", value=True)
@@ -31,6 +32,7 @@ def render_controls(station_list):
     show_abs_out = st.sidebar.checkbox("🌫️ Abs Outtake Humidity", value=True)
 
     selected_fields = ["timestamp"]
+    if show_harvest_eff: selected_fields.append("harvesting_efficiency")
     if show_intake_water: selected_fields.append("accumulated_intake_water")
     if show_prod: selected_fields.append("water_production")
     if show_power_consumption: selected_fields.append("accumulated_energy (kWh)")
