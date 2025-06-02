@@ -6,59 +6,66 @@ import streamlit as st
 from datetime import datetime
 
 # 🔐 Load credentials from Streamlit secrets
-service_account_info = json.loads(st.secrets["gcp_service_account"])
-key_path = "/tmp/service_account.json"
-with open(key_path, "w") as f:
-    json.dump(service_account_info, f)
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = key_path
+@st.cache_resource
+def get_firestore_client():
+    service_account_info = json.loads(st.secrets["gcp_service_account"])
+    key_path = "/tmp/service_account.json"
+    with open(key_path, "w") as f:
+        json.dump(service_account_info, f)
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = key_path
+    return firestore.Client()
 
 # 🔌 Initialize Firestore client
-db = firestore.Client()
+db = get_firestore_client()
 
 # 📡 Get list of stations that have at least one reading
-@st.cache_data
+@st.cache_data(ttl=60)
 def get_station_list():
-    station_docs = db.collection("stations").list_documents()
-    station_ids_with_data = []
+    try:
+        station_docs = db.collection("stations").list_documents()
+        station_ids_with_data = []
 
-    for station_doc in station_docs:
-        readings = (
-            db.collection("stations")
-              .document(station_doc.id)
-              .collection("readings")
-              .limit(1)
-              .stream()
-        )
-        if any(True for _ in readings):  # Has at least one document
-            station_ids_with_data.append(station_doc.id)
+        for station_doc in station_docs:
+            readings_ref = db.collection("stations").document(station_doc.id).collection("readings")
+            if readings_ref.limit(1).get():
+                station_ids_with_data.append(station_doc.id)
 
-    return sorted(station_ids_with_data)
+        return sorted(station_ids_with_data)
+
+    except Exception as e:
+        st.error(f"❌ Error loading station list: {e}")
+        return []
 
 # 📥 Load data for a specific station, sorted by timestamp
-@st.cache_data
+@st.cache_data(ttl=60)
 def load_station_data(station_id):
     try:
-        docs = (
+        readings_ref = (
             db.collection("stations")
               .document(station_id)
               .collection("readings")
               .order_by("timestamp", direction=firestore.Query.ASCENDING)
-              .stream()
         )
 
         records = []
-        for doc in docs:
+        for doc in readings_ref.stream():
             data = doc.to_dict()
             data["id"] = doc.id
 
-            # Convert Firestore timestamp to Python datetime
-            if "timestamp" in data and hasattr(data["timestamp"], "to_datetime"):
-                data["timestamp"] = data["timestamp"].to_datetime()
+            # Safely convert Firestore timestamp
+            ts = data.get("timestamp")
+            if hasattr(ts, "to_datetime"):
+                data["timestamp"] = ts.to_datetime()
+            elif isinstance(ts, datetime):
+                data["timestamp"] = ts
+            else:
+                data["timestamp"] = None
 
             records.append(data)
 
-        return pd.DataFrame(records)
+        df = pd.DataFrame(records)
+        return df.sort_values("timestamp") if not df.empty else df
 
     except Exception as e:
-        st.error(f"⚠️ Failed to load Firestore data: {e}")
+        st.error(f"❌ Failed to load data for station `{station_id}`: {e}")
         return pd.DataFrame()
