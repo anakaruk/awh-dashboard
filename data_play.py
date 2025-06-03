@@ -41,8 +41,8 @@ def process_data(df, intake_area=1.0):
         df = df.sort_values("timestamp").reset_index(drop=True)
         df["sample_interval"] = df["timestamp"].diff().dt.total_seconds()
         median_interval = df["sample_interval"].iloc[1:].median()
-        df["sample_interval"] = df["sample_interval"].fillna(median_interval or 10)
-        df.loc[df["sample_interval"] < 0, "sample_interval"] = median_interval or 10
+        df["sample_interval"] = df["sample_interval"].fillna(median_interval or 30)
+        df.loc[df["sample_interval"] < 0, "sample_interval"] = median_interval or 30
 
     rename_map = {
         "velocity": "intake_air_velocity (m/s)",
@@ -75,6 +75,16 @@ def process_data(df, intake_area=1.0):
             else None,
             axis=1
         )
+
+    # Internal Calibration
+    calibration_condition = ((df.index < 10) | (df.get("current", 0) < 2))  # first ~5 minutes or low current
+    if calibration_condition.sum() > 0:
+        offset = (df.loc[calibration_condition, "absolute_intake_air_humidity"] -
+                  df.loc[calibration_condition, "absolute_outtake_air_humidity"]).mean()
+    else:
+        offset = 0
+
+    df["calibrated_outtake_air_humidity"] = df["absolute_outtake_air_humidity"] + offset
 
     if "weight" in df.columns:
         df["water_production"] = calculate_water_production(df["weight"])
@@ -119,8 +129,7 @@ def process_data(df, intake_area=1.0):
         df["intake_step"] = df["accumulated_intake_water"].diff()
         df["production_step"] = df["water_production"].diff()
 
-        # Apply 5-minute lag by shifting water production backward
-        df["production_step_lagged"] = df["production_step"].shift(-12)
+        df["production_step_lagged"] = df["production_step"].shift(-80)  # 40-minute lag at 30s interval
 
         df["harvesting_efficiency"] = df.apply(
             lambda row: round((row["production_step_lagged"] / row["intake_step"]) * 100, 2)
