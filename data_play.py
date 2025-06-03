@@ -39,13 +39,10 @@ def process_data(df, intake_area=1.0):
         df = df.dropna(subset=["timestamp"])
         df = df.sort_values("timestamp").reset_index(drop=True)
         df["sample_interval"] = df["timestamp"].diff().dt.total_seconds()
-
-        # Replace first row's NaN with median of valid intervals
         median_interval = df["sample_interval"].iloc[1:].median()
         df["sample_interval"] = df["sample_interval"].fillna(median_interval or 10)
-        df.loc[df["sample_interval"] < 0, "sample_interval"] = median_interval or 10  # Prevent negative intervals
+        df.loc[df["sample_interval"] < 0, "sample_interval"] = median_interval or 10
 
-    # Rename raw fields
     rename_map = {
         "velocity": "intake_air_velocity (m/s)",
         "temperature": "intake_air_temperature (C)",
@@ -58,7 +55,6 @@ def process_data(df, intake_area=1.0):
         if old_col in df.columns:
             df.rename(columns={old_col: new_col}, inplace=True)
 
-    # Calculate absolute humidity
     if "intake_air_temperature (C)" in df.columns and "intake_air_humidity (%)" in df.columns:
         df["absolute_intake_air_humidity"] = df.apply(
             lambda row: calculate_absolute_humidity(
@@ -79,13 +75,11 @@ def process_data(df, intake_area=1.0):
             axis=1
         )
 
-    # Water production
     if "weight" in df.columns:
         df["water_production"] = calculate_water_production(df["weight"])
     else:
         print("⚠️ No 'weight' column found for water production")
 
-    # Intake water calculation
     if all(col in df.columns for col in ["absolute_intake_air_humidity", "intake_air_velocity (m/s)", "sample_interval"]):
         accumulated = 0
         intake_water_list = []
@@ -101,7 +95,6 @@ def process_data(df, intake_area=1.0):
 
         df["accumulated_intake_water"] = intake_water_list
 
-    # Power and energy calculations
     if "power" in df.columns and "timestamp" in df.columns:
         try:
             freq_seconds = df["timestamp"].diff().dt.total_seconds().median()
@@ -111,7 +104,6 @@ def process_data(df, intake_area=1.0):
         except Exception as e:
             print(f"❌ Error calculating energy: {e}")
 
-    # Energy per liter
     if "accumulated_energy (kWh)" in df.columns and "water_production" in df.columns:
         df["energy_per_liter (kWh/L)"] = df.apply(
             lambda row: round((row["accumulated_energy (kWh)"] / row["water_production"]), 5)
@@ -122,7 +114,6 @@ def process_data(df, intake_area=1.0):
             axis=1
         )
 
-    # Harvesting Efficiency (%)
     if "accumulated_intake_water" in df.columns and "water_production" in df.columns:
         df["intake_step"] = df["accumulated_intake_water"].diff()
         df["production_step"] = df["water_production"].diff()
