@@ -70,9 +70,8 @@ def render_data_section(df, station_name, selected_fields):
         with col2:
             st.markdown("#### 📈 Scatter Plot")
 
-            # Ensure numeric values and drop NaNs
             df_sorted[field] = pd.to_numeric(df_sorted[field], errors="coerce")
-            plot_data = df_sorted[["Time", "Date", field]].dropna()
+            plot_data = df_sorted[["timestamp", field]].dropna()
 
             excluded_points = 0
             if field == "harvesting_efficiency":
@@ -90,13 +89,12 @@ def render_data_section(df, station_name, selected_fields):
             )
 
             chart = alt.Chart(plot_data).mark_circle(size=60).encode(
-                x=alt.X("Time:N", title="Time"),
+                x=alt.X("timestamp:T", title="Date & Time"),
                 y=y_axis,
-                tooltip=["Date", "Time", field]
+                tooltip=["timestamp", field]
             ).properties(width="container", height=300)
 
             st.altair_chart(chart, use_container_width=True)
 
-            # Optional note if data was excluded
             if excluded_points > 0:
                 st.caption(f"⚠️ {excluded_points} point(s) above 50% were excluded from the plot.")
