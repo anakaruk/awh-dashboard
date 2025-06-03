@@ -89,7 +89,11 @@ def render_data_section(df, station_name, selected_fields):
             )
 
             chart = alt.Chart(plot_data).mark_circle(size=60).encode(
-                x=alt.X("timestamp:T", title="Date & Time"),
+                x=alt.X(
+                    "timestamp:T",
+                    title="Date & Time",
+                    axis=alt.Axis(format="%Y-%m-%d %H:%M", labelAngle=-45)
+                ),
                 y=y_axis,
                 tooltip=["timestamp", field]
             ).properties(width="container", height=300)
