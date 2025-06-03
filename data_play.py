@@ -35,11 +35,15 @@ def process_data(df, intake_area=1.0):
     df = df.copy()
 
     if "timestamp" in df.columns:
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        df = df.dropna(subset=["timestamp"])
         df = df.sort_values("timestamp").reset_index(drop=True)
         df["sample_interval"] = df["timestamp"].diff().dt.total_seconds()
+
+        # Replace first row's NaN with median of valid intervals
         median_interval = df["sample_interval"].iloc[1:].median()
         df["sample_interval"] = df["sample_interval"].fillna(median_interval or 10)
+        df.loc[df["sample_interval"] < 0, "sample_interval"] = median_interval or 10  # Prevent negative intervals
 
     # Rename raw fields
     rename_map = {
