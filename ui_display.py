@@ -21,6 +21,7 @@ def render_controls(station_list):
         ("🔋 Power Consumption (kW.hr)", "accumulated_energy (kWh)"),
         ("🌫️ Abs. Intake humidity (g/m3)", "absolute_intake_air_humidity"),
         ("🌫️ Abs. Outtake humidity (g/m3)", "absolute_outtake_air_humidity"),
+        ("🌫️ Adjust Abs. Outtake humidity (g/m3)", "calibrated_outtake_air_humidity"),
         ("🌡️ Intake temperature (°C)", "intake_air_temperature (C)"),
         ("💨 Intake humidity (%)", "intake_air_humidity (%)"),
         ("↘ Intake velocity (m/s)", "intake_air_velocity (m/s)"),
