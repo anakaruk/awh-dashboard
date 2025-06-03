@@ -129,7 +129,7 @@ def process_data(df, intake_area=1.0):
         df["intake_step"] = df["accumulated_intake_water"].diff()
         df["production_step"] = df["water_production"].diff()
 
-        df["production_step_lagged"] = df["production_step"].shift(-2)  # 40-minute lag at 30s interval
+        df["production_step_lagged"] = df["production_step"].shift(-10)  # 40-minute lag at 30s interval
 
         df["harvesting_efficiency"] = df.apply(
             lambda row: round((row["production_step_lagged"] / row["intake_step"]) * 100, 2)
