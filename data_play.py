@@ -1,3 +1,4 @@
+
 import pandas as pd
 import math
 
@@ -118,11 +119,15 @@ def process_data(df, intake_area=1.0):
         df["intake_step"] = df["accumulated_intake_water"].diff()
         df["production_step"] = df["water_production"].diff()
 
+        # Apply 5-minute lag by shifting water production backward
+        df["production_step_lagged"] = df["production_step"].shift(-5)
+
         df["harvesting_efficiency"] = df.apply(
-            lambda row: round((row["production_step"] / row["intake_step"]) * 100, 2)
-            if pd.notnull(row["production_step"]) and pd.notnull(row["intake_step"]) and row["intake_step"] > 0
+            lambda row: round((row["production_step_lagged"] / row["intake_step"]) * 100, 2)
+            if pd.notnull(row["production_step_lagged"]) and pd.notnull(row["intake_step"]) and row["intake_step"] > 0
             else 0.0,
             axis=1
         )
 
     return df
+
