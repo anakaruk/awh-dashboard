@@ -22,13 +22,6 @@ def get_firestore_client():
 # 🔌 Initialize Firestore client
 db = get_firestore_client()
 
-# 🔁 Station name mapping (Firestore ID → UI name)
-station_name_map = {
-    "station_Dewstand@GreenHose_Polytechnic": "station_Dewstand@GreenHouse_Polytechnic"
-}
-# 🔁 Reverse mapping (UI name → Firestore ID)
-reverse_station_name_map = {v: k for k, v in station_name_map.items()}
-
 # 📡 Get list of stations that have at least one reading
 @st.cache_data(ttl=60)
 def get_station_list():
@@ -39,8 +32,7 @@ def get_station_list():
         for station_doc in station_docs:
             readings_ref = db.collection("stations").document(station_doc.id).collection("readings")
             if readings_ref.limit(1).get():
-                display_id = station_name_map.get(station_doc.id, station_doc.id)
-                station_ids_with_data.append(display_id)
+                station_ids_with_data.append(station_doc.id)
 
         return sorted(station_ids_with_data)
     except Exception as e:
@@ -51,11 +43,9 @@ def get_station_list():
 @st.cache_data(ttl=60)
 def load_station_data(station_id):
     try:
-        firestore_id = reverse_station_name_map.get(station_id, station_id)
-
         readings_ref = (
             db.collection("stations")
-              .document(firestore_id)
+              .document(station_id)
               .collection("readings")
               .order_by("timestamp", direction=firestore.Query.ASCENDING)
         )
@@ -71,7 +61,7 @@ def load_station_data(station_id):
             elif isinstance(ts, datetime):
                 data["timestamp"] = ts
             else:
-                data["timestamp"] = None  # Optional: replace with datetime.utcnow()
+                data["timestamp"] = None
 
             records.append(data)
 
