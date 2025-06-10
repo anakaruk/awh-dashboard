@@ -52,14 +52,23 @@ def render_data_section(df, station_name, selected_fields):
     df_sorted["Date"] = df_sorted["timestamp"].dt.date
     df_sorted["Time"] = df_sorted["timestamp"].dt.strftime("%H:%M:%S")
 
-    # Compute 6-hour interval ticks
+    # Safe timezone handling
     start_time = df_sorted["timestamp"].min().tz_localize(None)
     end_time = df_sorted["timestamp"].max().tz_localize(None)
 
+    # Snap start to previous 6-hour block
     start_hour = (start_time.hour // 6) * 6
     adjusted_start = pd.Timestamp(start_time.date()) + pd.Timedelta(hours=start_hour)
 
-    tick_times = pd.date_range(start=adjusted_start, end=end_time + pd.Timedelta(hours=6), freq="6H").to_list()
+    # Snap end to next 6-hour block
+    end_hour = ((end_time.hour // 6) + 1) * 6
+    adjusted_end = pd.Timestamp(end_time.date()) + pd.Timedelta(hours=end_hour)
+    if end_hour >= 24:
+        adjusted_end += pd.Timedelta(days=1)
+        adjusted_end = adjusted_end.replace(hour=0)
+
+    # Generate tick times
+    tick_times = pd.date_range(start=adjusted_start, end=adjusted_end, freq="6H").to_list()
 
     for field in available_fields:
         st.subheader(f"{field} Overview")
