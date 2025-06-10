@@ -11,7 +11,7 @@ def render_controls(station_list):
         "T50 1: 0.18 m²": 0.18
     }
 
-    intake_area_label = st.sidebar.selectbox("🧮 Intake Area (m²)", list(intake_area_options.keys()))
+    intake_area_label = st.sidebar.selectbox("🧲 Intake Area (m²)", list(intake_area_options.keys()))
     intake_area = intake_area_options[intake_area_label]
 
     field_options = [
@@ -69,7 +69,7 @@ def render_data_section(df, station_name, selected_fields):
             )
 
         with col2:
-            st.markdown("#### 📈 Scatter Plot")
+            st.markdown("#### 📈 Plot")
 
             df_sorted[field] = pd.to_numeric(df_sorted[field], errors="coerce")
             plot_data = df_sorted[["timestamp", field]].dropna()
@@ -83,23 +83,41 @@ def render_data_section(df, station_name, selected_fields):
                 st.warning(f"⚠️ No data available to plot for `{field}`.")
                 continue
 
-            y_axis = alt.Y(
-                field,
-                title=field,
-                scale=alt.Scale(domain=[0, 30]) if field == "harvesting_efficiency" else alt.Undefined
-            )
+            if field == "energy_per_liter (kWh/L)":
+                plot_data["Hour"] = plot_data["timestamp"].dt.floor("H")
+                hourly_plot = (
+                    plot_data.groupby("Hour")[field]
+                    .mean()
+                    .reset_index()
+                    .rename(columns={"Hour": "timestamp"})
+                )
 
-            chart = alt.Chart(plot_data).mark_circle(size=60).encode(
-                x=alt.X(
-                    "timestamp:T",
-                    title="Date & Time",
-                    axis=alt.Axis(format="%Y-%m-%d %H:%M", labelAngle=-45)
-                ),
-                y=y_axis,
-                tooltip=["timestamp", field]
-            ).properties(width="container", height=300)
+                chart = alt.Chart(hourly_plot).mark_bar().encode(
+                    x=alt.X("timestamp:T", title="Hour", axis=alt.Axis(format="%H:%M")),
+                    y=alt.Y(field, title="Energy per Liter (kWh/L)"),
+                    tooltip=["timestamp", field]
+                ).properties(width="container", height=300)
 
-            st.altair_chart(chart, use_container_width=True)
+                st.altair_chart(chart, use_container_width=True)
+
+            else:
+                y_axis = alt.Y(
+                    field,
+                    title=field,
+                    scale=alt.Scale(domain=[0, 30]) if field == "harvesting_efficiency" else alt.Undefined
+                )
+
+                chart = alt.Chart(plot_data).mark_circle(size=60).encode(
+                    x=alt.X(
+                        "timestamp:T",
+                        title="Date & Time",
+                        axis=alt.Axis(format="%Y-%m-%d %H:%M", labelAngle=-45)
+                    ),
+                    y=y_axis,
+                    tooltip=["timestamp", field]
+                ).properties(width="container", height=300)
+
+                st.altair_chart(chart, use_container_width=True)
 
             if excluded_points > 0:
                 st.caption(f"⚠️ {excluded_points} point(s) above 50% were excluded from the plot.")
