@@ -52,15 +52,16 @@ def render_data_section(df, station_name, selected_fields):
     df_sorted["Date"] = df_sorted["timestamp"].dt.date
     df_sorted["Time"] = df_sorted["timestamp"].dt.strftime("%H:%M:%S")
 
-    unique_dates = df_sorted["timestamp"].dt.normalize().drop_duplicates()
-    tick_times = []
-    for d in unique_dates:
-        tick_times += [
-            pd.Timestamp(f"{d.date()} 00:00"),
-            pd.Timestamp(f"{d.date()} 06:00"),
-            pd.Timestamp(f"{d.date()} 12:00"),
-            pd.Timestamp(f"{d.date()} 18:00")
-        ]
+start_time = df_sorted["timestamp"].min()
+end_time = df_sorted["timestamp"].max()
+
+# Floor to previous 6-hour block
+start_hour = (start_time.hour // 6) * 6
+adjusted_start = pd.Timestamp(start_time.date()) + pd.Timedelta(hours=start_hour)
+
+# Generate 6-hour ticks from adjusted_start to end_time + 6hr
+tick_times = pd.date_range(start=adjusted_start, end=end_time + pd.Timedelta(hours=6), freq="6H").to_list()
+
 
     for field in available_fields:
         st.subheader(f"{field} Overview")
