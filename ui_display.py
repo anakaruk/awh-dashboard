@@ -98,8 +98,9 @@ def render_data_section(df, station_name, selected_fields):
                 excluded_points = (plot_data[field] > 50).sum()
                 plot_data = plot_data[plot_data[field] <= 50]
 
+            # Axis config now shows full date and time
             axis_config = alt.Axis(
-                format="%m-%d %H:%M",
+                format="%b %d, %H:%M",  # e.g., Jun 09, 09:30
                 values=tick_times,
                 labelAngle=-45,
                 labelOverlap="greedy",
