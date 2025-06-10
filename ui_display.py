@@ -84,6 +84,21 @@ def render_data_section(df, station_name, selected_fields):
                 st.warning(f"⚠️ No data available to plot for `{field}`.")
                 continue
 
+            # 📍 FIXED 6-HOUR TICK AXIS
+            start_time = plot_data["timestamp"].min()
+            end_time = plot_data["timestamp"].max()
+
+            start_hour = (start_time.hour // 6) * 6
+            adjusted_start = pd.Timestamp(start_time.date()) + pd.Timedelta(hours=start_hour)
+
+            end_hour = ((end_time.hour // 6) + 1) * 6
+            adjusted_end = pd.Timestamp(end_time.date()) + pd.Timedelta(hours=end_hour)
+            if end_hour >= 24:
+                adjusted_end += pd.Timedelta(days=1)
+                adjusted_end = adjusted_end.replace(hour=0)
+
+            tick_times = pd.date_range(start=adjusted_start, end=adjusted_end, freq="6H").to_list()
+
             if field == "energy_per_liter (kWh/L)":
                 plot_data["Hour"] = plot_data["timestamp"].dt.floor("H")
                 hourly_plot = (
@@ -112,7 +127,11 @@ def render_data_section(df, station_name, selected_fields):
                     x=alt.X(
                         "timestamp:T",
                         title="Date & Time",
-                        axis=alt.Axis(format="%Y-%m-%d %H:%M", labelAngle=-45)
+                        axis=alt.Axis(
+                            values=tick_times,
+                            format="%Y-%m-%d %H:%M",
+                            labelAngle=-45
+                        )
                     ),
                     y=y_axis,
                     tooltip=["timestamp", field]
