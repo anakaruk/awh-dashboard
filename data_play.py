@@ -65,25 +65,25 @@ def process_data(df, intake_area=1.0):
             axis=1
         )
 
-    if "outtake_air_temperature (C)" in df.columns and "outtake_humidity (%)" in df.columns:
+    if "outtake_air_temperature (C)" in df.columns and "outtake_air_humidity (%)" in df.columns:
         df["absolute_outtake_air_humidity"] = df.apply(
             lambda row: calculate_absolute_humidity(
                 row["outtake_air_temperature (C)"],
-                row["outtake_humidity (%)"]
-            ) if pd.notnull(row["outtake_air_temperature (C)"]) and pd.notnull(row["outtake_humidity (%)"])
+                row["outtake_air_humidity (%)"]
+            ) if pd.notnull(row["outtake_air_temperature (C)"]) and pd.notnull(row["outtake_air_humidity (%)"])
             else None,
             axis=1
         )
 
     # Internal Calibration
-    calibration_condition = ((df.index < 10) | (df.get("current", 0) < 2))
-    if calibration_condition.sum() > 0:
-        offset = (df.loc[calibration_condition, "absolute_intake_air_humidity"] -
-                  df.loc[calibration_condition, "absolute_outtake_air_humidity"]).mean()
-    else:
-        offset = 0
-
-    df["calibrated_outtake_air_humidity"] = df["absolute_outtake_air_humidity"] + offset
+    if "absolute_intake_air_humidity" in df.columns and "absolute_outtake_air_humidity" in df.columns:
+        calibration_condition = ((df.index < 10) | (df.get("current", 0) < 2))
+        if calibration_condition.sum() > 0:
+            offset = (df.loc[calibration_condition, "absolute_intake_air_humidity"] -
+                      df.loc[calibration_condition, "absolute_outtake_air_humidity"]).mean()
+        else:
+            offset = 0
+        df["calibrated_outtake_air_humidity"] = df["absolute_outtake_air_humidity"] + offset
 
     if "weight" in df.columns:
         df["water_production"] = calculate_water_production(df["weight"])
