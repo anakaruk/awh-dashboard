@@ -46,29 +46,30 @@ def render_data_section(df, station_name, selected_fields):
         st.warning("No data found for this station.")
         return
 
-    available_fields = [col for col in selected_fields if col in df.columns and col != "timestamp"]
+    # Ensure timestamp is in datetime format and timezone-naive
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    if df["timestamp"].dt.tz is not None:
+        df["timestamp"] = df["timestamp"].dt.tz_localize(None)
 
     df_sorted = df.sort_values("timestamp").copy()
     df_sorted["Date"] = df_sorted["timestamp"].dt.date
     df_sorted["Time"] = df_sorted["timestamp"].dt.strftime("%H:%M:%S")
 
-    # Safe timezone handling
-    start_time = df_sorted["timestamp"].min().tz_localize(None)
-    end_time = df_sorted["timestamp"].max().tz_localize(None)
+    start_time = df_sorted["timestamp"].min()
+    end_time = df_sorted["timestamp"].max()
 
-    # Snap start to previous 6-hour block
+    # Snap to nearest 6-hour intervals
     start_hour = (start_time.hour // 6) * 6
-    adjusted_start = pd.Timestamp(start_time.date()) + pd.Timedelta(hours=start_hour)
-
-    # Snap end to next 6-hour block
     end_hour = ((end_time.hour // 6) + 1) * 6
+    adjusted_start = pd.Timestamp(start_time.date()) + pd.Timedelta(hours=start_hour)
     adjusted_end = pd.Timestamp(end_time.date()) + pd.Timedelta(hours=end_hour)
     if end_hour >= 24:
         adjusted_end += pd.Timedelta(days=1)
         adjusted_end = adjusted_end.replace(hour=0)
 
-    # Generate tick times
     tick_times = pd.date_range(start=adjusted_start, end=adjusted_end, freq="6H").to_list()
+
+    available_fields = [col for col in selected_fields if col in df_sorted.columns and col != "timestamp"]
 
     for field in available_fields:
         st.subheader(f"{field} Overview")
@@ -101,19 +102,18 @@ def render_data_section(df, station_name, selected_fields):
                 format="%m-%d %H:%M",
                 values=tick_times,
                 labelAngle=-45,
-                labelOverlap=False,
+                labelOverlap="greedy",
                 title="Date & Time"
             )
 
             if plot_data.empty:
                 st.warning(f"No data available to plot for `{field}`.")
-
                 dummy_df = pd.DataFrame({"timestamp": tick_times, field: [None] * len(tick_times)})
 
                 chart = alt.Chart(dummy_df).mark_point(opacity=0).encode(
                     x=alt.X("timestamp:T", axis=axis_config),
                     y=alt.Y(field, title=field)
-                ).properties(width="container", height=300)
+                ).properties(width=800, height=300)
 
                 st.altair_chart(chart, use_container_width=True)
                 continue
@@ -131,7 +131,7 @@ def render_data_section(df, station_name, selected_fields):
                     x=alt.X("timestamp:T", title="Hour", axis=alt.Axis(format="%H:%M")),
                     y=alt.Y(field, title="Energy per Liter (kWh/L)"),
                     tooltip=["timestamp", field]
-                ).properties(width="container", height=300)
+                ).properties(width=800, height=300)
 
                 st.altair_chart(chart, use_container_width=True)
 
@@ -140,7 +140,7 @@ def render_data_section(df, station_name, selected_fields):
                     x=alt.X("timestamp:T", axis=axis_config),
                     y=alt.Y(field, title=field),
                     tooltip=["timestamp", field]
-                ).properties(width="container", height=300)
+                ).properties(width=800, height=300)
 
                 st.altair_chart(chart, use_container_width=True)
 
