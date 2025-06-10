@@ -65,18 +65,18 @@ def process_data(df, intake_area=1.0):
             axis=1
         )
 
-    if "outtake_air_temperature (C)" in df.columns and "outtake_air_humidity (%)" in df.columns:
+    if "outtake_air_temperature (C)" in df.columns and "outtake_humidity (%)" in df.columns:
         df["absolute_outtake_air_humidity"] = df.apply(
             lambda row: calculate_absolute_humidity(
                 row["outtake_air_temperature (C)"],
-                row["outtake_air_humidity (%)"]
-            ) if pd.notnull(row["outtake_air_temperature (C)"]) and pd.notnull(row["outtake_air_humidity (%)"])
+                row["outtake_humidity (%)"]
+            ) if pd.notnull(row["outtake_air_temperature (C)"]) and pd.notnull(row["outtake_humidity (%)"])
             else None,
             axis=1
         )
 
     # Internal Calibration
-    calibration_condition = ((df.index < 10) | (df.get("current", 0) < 2))  # first ~5 minutes or low current
+    calibration_condition = ((df.index < 10) | (df.get("current", 0) < 2))
     if calibration_condition.sum() > 0:
         offset = (df.loc[calibration_condition, "absolute_intake_air_humidity"] -
                   df.loc[calibration_condition, "absolute_outtake_air_humidity"]).mean()
@@ -118,17 +118,14 @@ def process_data(df, intake_area=1.0):
     if "timestamp" in df.columns and "power" in df.columns:
         df["timestamp_hour"] = df["timestamp"].dt.floor('H')
 
-        # Compute energy step per row
         df["energy_step (Wh)"] = df["power"].diff().fillna(0)
-        df["energy_step (Wh)"] = df["energy_step (Wh)"].apply(lambda x: x if x > 0 else 0)  # handle standby/reset
+        df["energy_step (Wh)"] = df["energy_step (Wh)"].apply(lambda x: x if x > 0 else 0)
         df["energy_step (kWh)"] = df["energy_step (Wh)"] / 1000
 
-        # Compute water production step per row (improved for resets)
         df["weight_diff"] = df["weight"].diff().fillna(0)
-        df["weight_diff"] = df["weight_diff"].apply(lambda x: x if x >= 0 else 0)  # reset = drop → ignore
+        df["weight_diff"] = df["weight_diff"].apply(lambda x: x if x >= 0 else 0)
         df["water_step (L)"] = df["weight_diff"] / 1000
 
-        # Group by hour and sum energy & water
         hourly = df.groupby("timestamp_hour").agg({
             "energy_step (kWh)": "sum",
             "water_step (L)": "sum"
@@ -142,13 +139,12 @@ def process_data(df, intake_area=1.0):
 
         df = df.merge(hourly[["timestamp_hour", "energy_per_liter (kWh/L)"]],
                       on="timestamp_hour", how="left")
-        )
 
     if "accumulated_intake_water" in df.columns and "water_production" in df.columns:
         df["intake_step"] = df["accumulated_intake_water"].diff()
         df["production_step"] = df["water_production"].diff()
 
-        df["production_step_lagged"] = df["production_step"].shift(-10)  # 40-minute lag at 30s interval
+        df["production_step_lagged"] = df["production_step"].shift(-10)
 
         df["harvesting_efficiency"] = df.apply(
             lambda row: round((row["production_step_lagged"] / row["intake_step"]) * 100, 2)
@@ -158,4 +154,3 @@ def process_data(df, intake_area=1.0):
         )
 
     return df
-
