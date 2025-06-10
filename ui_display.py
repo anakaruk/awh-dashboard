@@ -52,6 +52,17 @@ def render_data_section(df, station_name, selected_fields):
     df_sorted["Date"] = df_sorted["timestamp"].dt.date
     df_sorted["Time"] = df_sorted["timestamp"].dt.strftime("%H:%M:%S")
 
+    # Generate standard tick times for each day
+    unique_dates = df_sorted["timestamp"].dt.normalize().drop_duplicates()
+    tick_times = []
+    for d in unique_dates:
+        tick_times += [
+            pd.Timestamp(f"{d.date()} 06:00"),
+            pd.Timestamp(f"{d.date()} 12:00"),
+            pd.Timestamp(f"{d.date()} 18:00"),
+            pd.Timestamp(f"{(d + pd.Timedelta(days=1)).date()} 00:00")
+        ]
+
     for field in available_fields:
         st.subheader(f"📊 `{field}` Overview")
 
@@ -111,7 +122,11 @@ def render_data_section(df, station_name, selected_fields):
                     x=alt.X(
                         "timestamp:T",
                         title="Date & Time",
-                        axis=alt.Axis(format="%Y-%m-%d %H:%M", labelAngle=-45)
+                        axis=alt.Axis(
+                            format="%m-%d %H:%M",
+                            values=tick_times,
+                            labelAngle=-45
+                        )
                     ),
                     y=y_axis,
                     tooltip=["timestamp", field]
