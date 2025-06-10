@@ -53,8 +53,8 @@ def render_data_section(df, station_name, selected_fields):
     df_sorted["Time"] = df_sorted["timestamp"].dt.strftime("%H:%M:%S")
 
     # Compute 6-hour interval ticks
-    start_time = df_sorted["timestamp"].min()
-    end_time = df_sorted["timestamp"].max()
+start_time = df_sorted["timestamp"].min().tz_localize(None)
+end_time = df_sorted["timestamp"].max().tz_localize(None)
 
     start_hour = (start_time.hour // 6) * 6
     adjusted_start = pd.Timestamp(start_time.date()) + pd.Timedelta(hours=start_hour)
