@@ -98,9 +98,8 @@ def render_data_section(df, station_name, selected_fields):
                 excluded_points = (plot_data[field] > 50).sum()
                 plot_data = plot_data[plot_data[field] <= 50]
 
-            # Axis config now shows full date and time
             axis_config = alt.Axis(
-                format="%b %d, %H:%M",  # e.g., Jun 09, 09:30
+                format="%b %d, %H:%M",  # Show full date and time
                 values=tick_times,
                 labelAngle=-45,
                 labelOverlap="greedy",
@@ -112,7 +111,7 @@ def render_data_section(df, station_name, selected_fields):
                 dummy_df = pd.DataFrame({"timestamp": tick_times, field: [None] * len(tick_times)})
 
                 chart = alt.Chart(dummy_df).mark_point(opacity=0).encode(
-                    x=alt.X("timestamp:T", axis=axis_config),
+                    x=alt.X("timestamp:T", timeUnit="yearmonthdatehoursminutes", axis=axis_config),
                     y=alt.Y(field, title=field)
                 ).properties(width=800, height=300)
 
@@ -129,7 +128,8 @@ def render_data_section(df, station_name, selected_fields):
                 )
 
                 chart = alt.Chart(hourly_plot).mark_bar().encode(
-                    x=alt.X("timestamp:T", title="Hour", axis=alt.Axis(format="%H:%M")),
+                    x=alt.X("timestamp:T", timeUnit="yearmonthdatehoursminutes", title="Hour",
+                            axis=alt.Axis(format="%H:%M")),
                     y=alt.Y(field, title="Energy per Liter (kWh/L)"),
                     tooltip=["timestamp", field]
                 ).properties(width=800, height=300)
@@ -138,7 +138,7 @@ def render_data_section(df, station_name, selected_fields):
 
             else:
                 chart = alt.Chart(plot_data).mark_circle(size=60).encode(
-                    x=alt.X("timestamp:T", axis=axis_config),
+                    x=alt.X("timestamp:T", timeUnit="yearmonthdatehoursminutes", axis=axis_config),
                     y=alt.Y(field, title=field),
                     tooltip=["timestamp", field]
                 ).properties(width=800, height=300)
