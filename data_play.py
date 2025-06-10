@@ -114,7 +114,7 @@ def process_data(df, intake_area=1.0):
         except Exception as e:
             print(f"❌ Error calculating energy: {e}")
 
-    # --- Energy per Liter (kWh/L) by hour ---
+    # --- Energy per Liter (kWh/L) by hourly average ---
     if "timestamp" in df.columns and "power" in df.columns:
         df["timestamp_hour"] = df["timestamp"].dt.floor('H')
 
@@ -126,19 +126,17 @@ def process_data(df, intake_area=1.0):
         df["weight_diff"] = df["weight_diff"].apply(lambda x: x if x >= 0 else 0)
         df["water_step (L)"] = df["weight_diff"] / 1000
 
-        hourly = df.groupby("timestamp_hour").agg({
-            "energy_step (kWh)": "sum",
-            "water_step (L)": "sum"
-        }).reset_index()
-
-        hourly["energy_per_liter (kWh/L)"] = hourly.apply(
-            lambda row: round(row["energy_step (kWh)"] / row["water_step (L)"], 5)
+        df["step_energy_per_liter"] = df.apply(
+            lambda row: row["energy_step (kWh)"] / row["water_step (L)"]
             if row["water_step (L)"] > 0 else None,
             axis=1
         )
 
-        df = df.merge(hourly[["timestamp_hour", "energy_per_liter (kWh/L)"]],
-                      on="timestamp_hour", how="left")
+        hourly = df.groupby("timestamp_hour").agg({
+            "step_energy_per_liter": "mean"
+        }).rename(columns={"step_energy_per_liter": "energy_per_liter (kWh/L)"}).reset_index()
+
+        df = df.merge(hourly, on="timestamp_hour", how="left")
 
     if "accumulated_intake_water" in df.columns and "water_production" in df.columns:
         df["intake_step"] = df["accumulated_intake_water"].diff()
