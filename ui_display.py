@@ -52,16 +52,14 @@ def render_data_section(df, station_name, selected_fields):
     df_sorted["Date"] = df_sorted["timestamp"].dt.date
     df_sorted["Time"] = df_sorted["timestamp"].dt.strftime("%H:%M:%S")
 
-start_time = df_sorted["timestamp"].min()
-end_time = df_sorted["timestamp"].max()
+    # Compute 6-hour interval ticks
+    start_time = df_sorted["timestamp"].min()
+    end_time = df_sorted["timestamp"].max()
 
-# Floor to previous 6-hour block
-start_hour = (start_time.hour // 6) * 6
-adjusted_start = pd.Timestamp(start_time.date()) + pd.Timedelta(hours=start_hour)
+    start_hour = (start_time.hour // 6) * 6
+    adjusted_start = pd.Timestamp(start_time.date()) + pd.Timedelta(hours=start_hour)
 
-# Generate 6-hour ticks from adjusted_start to end_time + 6hr
-tick_times = pd.date_range(start=adjusted_start, end=end_time + pd.Timedelta(hours=6), freq="6H").to_list()
-
+    tick_times = pd.date_range(start=adjusted_start, end=end_time + pd.Timedelta(hours=6), freq="6H").to_list()
 
     for field in available_fields:
         st.subheader(f"{field} Overview")
@@ -101,7 +99,6 @@ tick_times = pd.date_range(start=adjusted_start, end=end_time + pd.Timedelta(hou
             if plot_data.empty:
                 st.warning(f"No data available to plot for `{field}`.")
 
-                # Create a dummy DataFrame to show x-axis
                 dummy_df = pd.DataFrame({"timestamp": tick_times, field: [None] * len(tick_times)})
 
                 chart = alt.Chart(dummy_df).mark_point(opacity=0).encode(
@@ -137,10 +134,6 @@ tick_times = pd.date_range(start=adjusted_start, end=end_time + pd.Timedelta(hou
                 ).properties(width="container", height=300)
 
                 st.altair_chart(chart, use_container_width=True)
-
-            if excluded_points > 0:
-                st.caption(f"{excluded_points} point(s) above 50% were excluded from the plot.")
-
 
             if excluded_points > 0:
                 st.caption(f"{excluded_points} point(s) above 50% were excluded from the plot.")
