@@ -62,6 +62,9 @@ def render_data_section(df, station_name, selected_fields):
             pd.Timestamp(f"{(d + pd.Timedelta(days=1)).date()} 00:00")
         ]
 
+    x_range = df_sorted["timestamp"].max() - df_sorted["timestamp"].min()
+    use_fixed_ticks = x_range > pd.Timedelta(days=1)
+
     for field in available_fields:
         st.subheader(f"{field} Overview")
 
@@ -111,23 +114,19 @@ def render_data_section(df, station_name, selected_fields):
                 st.altair_chart(chart, use_container_width=True)
 
             else:
-                y_axis = alt.Y(
-                    field,
-                    title=field,
+                y_axis = alt.Y(field, title=field)
+
+                axis_config = alt.Axis(
+                    format="%m-%d %H:%M",
+                    labelAngle=-45,
+                    labelOverlap="parity"
                 )
+                if use_fixed_ticks:
+                    axis_config.values = tick_times
+                    axis_config.tickCount = "day"
 
                 chart = alt.Chart(plot_data).mark_circle(size=60).encode(
-                    x=alt.X(
-                        "timestamp:T",
-                        title="Date & Time",
-                        axis=alt.Axis(
-                            format="%m-%d %H:%M",
-                            values=tick_times,
-                            labelAngle=-45,
-                            labelOverlap="parity",
-                            tickCount="day"
-                        )
-                    ),
+                    x=alt.X("timestamp:T", title="Date & Time", axis=axis_config),
                     y=y_axis,
                     tooltip=["timestamp", field]
                 ).properties(width="container", height=300)
