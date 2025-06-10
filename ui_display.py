@@ -53,7 +53,7 @@ def render_data_section(df, station_name, selected_fields):
     df_sorted["Time"] = df_sorted["timestamp"].dt.strftime("%H:%M:%S")
 
     for field in available_fields:
-        st.subheader(f"📊 `{field}` Overview")
+        st.subheader(f"📊 {field} Overview")
 
         col1, col2 = st.columns([1, 2], gap="large")
 
@@ -62,7 +62,7 @@ def render_data_section(df, station_name, selected_fields):
             st.dataframe(df_sorted[["Date", "Time", field]], use_container_width=True)
 
             st.download_button(
-                label=f"⬇️ Download `{field}` CSV",
+                label=f"⬇️ Download {field} CSV",
                 data=df_sorted[["Date", "Time", field]].to_csv(index=False),
                 file_name=f"{station_name}_{field.replace(' ', '_')}.csv",
                 mime="text/csv"
@@ -80,23 +80,8 @@ def render_data_section(df, station_name, selected_fields):
                 plot_data = plot_data[plot_data[field] <= 50]
 
             if plot_data.empty:
-                st.warning(f"⚠️ No data available to plot for `{field}`.")
+                st.warning(f"⚠️ No data available to plot for {field}.")
                 continue
-
-            # ✅ FIXED 6-HOUR TICK LOGIC
-            start_time = plot_data["timestamp"].min()
-            end_time = plot_data["timestamp"].max()
-
-            start_hour = (start_time.hour // 6) * 6
-            adjusted_start = pd.Timestamp(start_time.date()) + pd.Timedelta(hours=start_hour)
-
-            end_hour = ((end_time.hour // 6) + 1) * 6
-            adjusted_end = pd.Timestamp(end_time.date()) + pd.Timedelta(hours=end_hour)
-            if end_hour >= 24:
-                adjusted_end += pd.Timedelta(days=1)
-                adjusted_end = adjusted_end.replace(hour=0)
-
-            tick_times = pd.date_range(start=adjusted_start, end=adjusted_end, freq="6H").to_list()
 
             if field == "energy_per_liter (kWh/L)":
                 plot_data["Hour"] = plot_data["timestamp"].dt.floor("H")
@@ -126,11 +111,7 @@ def render_data_section(df, station_name, selected_fields):
                     x=alt.X(
                         "timestamp:T",
                         title="Date & Time",
-                        axis=alt.Axis(
-                            values=tick_times,
-                            format="%Y-%m-%d %H:%M",
-                            labelAngle=-45
-                        )
+                        axis=alt.Axis(format="%Y-%m-%d %H:%M", labelAngle=-45)
                     ),
                     y=y_axis,
                     tooltip=["timestamp", field]
