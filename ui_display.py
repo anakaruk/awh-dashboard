@@ -89,8 +89,26 @@ def render_data_section(df, station_name, selected_fields):
                 excluded_points = (plot_data[field] > 50).sum()
                 plot_data = plot_data[plot_data[field] <= 50]
 
+            axis_config = alt.Axis(
+                format="%m-%d %H:%M",
+                values=tick_times,
+                labelAngle=-45,
+                labelOverlap=False,
+                title="Date & Time"
+            )
+
             if plot_data.empty:
                 st.warning(f"No data available to plot for `{field}`.")
+
+                # Create a dummy DataFrame to show x-axis
+                dummy_df = pd.DataFrame({"timestamp": tick_times, field: [None] * len(tick_times)})
+
+                chart = alt.Chart(dummy_df).mark_point(opacity=0).encode(
+                    x=alt.X("timestamp:T", axis=axis_config),
+                    y=alt.Y(field, title=field)
+                ).properties(width="container", height=300)
+
+                st.altair_chart(chart, use_container_width=True)
                 continue
 
             if field == "energy_per_liter (kWh/L)":
@@ -111,23 +129,17 @@ def render_data_section(df, station_name, selected_fields):
                 st.altair_chart(chart, use_container_width=True)
 
             else:
-                y_axis = alt.Y(field, title=field)
-
-                axis_config = alt.Axis(
-                    format="%m-%d %H:%M",
-                    values=tick_times,
-                    labelAngle=-45,
-                    labelOverlap=False,
-                    title="Date & Time"
-                )
-
                 chart = alt.Chart(plot_data).mark_circle(size=60).encode(
                     x=alt.X("timestamp:T", axis=axis_config),
-                    y=y_axis,
+                    y=alt.Y(field, title=field),
                     tooltip=["timestamp", field]
                 ).properties(width="container", height=300)
 
                 st.altair_chart(chart, use_container_width=True)
+
+            if excluded_points > 0:
+                st.caption(f"{excluded_points} point(s) above 50% were excluded from the plot.")
+
 
             if excluded_points > 0:
                 st.caption(f"{excluded_points} point(s) above 50% were excluded from the plot.")
