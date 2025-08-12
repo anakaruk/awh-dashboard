@@ -122,13 +122,13 @@ def process_data(df, intake_area=1.0):
         df["energy_step (Wh)"] = df["energy_step (Wh)"].apply(lambda x: x if x > 0 else 0)
         df["energy_step (kWh)"] = df["energy_step (Wh)"] / 1000
 
-        df["weight_diff"] = df["weight"].diff().fillna(0)
+        df["weight_diff"] = df["weight"].diff().fillna(0) if "weight" in df.columns else 0
         df["weight_diff"] = df["weight_diff"].apply(lambda x: x if x >= 0 else 0)
         df["water_step (L)"] = df["weight_diff"] / 1000
 
         df["step_energy_per_liter"] = df.apply(
             lambda row: row["energy_step (kWh)"] / row["water_step (L)"]
-            if row["water_step (L)"] > 0 else None,
+            if row["water_step (L)"] and row["water_step (L)"] > 0 else None,
             axis=1
         )
 
