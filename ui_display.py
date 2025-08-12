@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
+from datetime import timedelta
 
 def render_controls(station_list):
     st.sidebar.header("🔧 Controls")
@@ -10,7 +11,6 @@ def render_controls(station_list):
         "DewStand 1: 0.04 m²": 0.04,
         "T50 1: 0.18 m²": 0.18
     }
-
     intake_area_label = st.sidebar.selectbox("🧲 Intake Area (m²)", list(intake_area_options.keys()))
     intake_area = intake_area_options[intake_area_label]
 
@@ -37,20 +37,80 @@ def render_controls(station_list):
         if st.sidebar.checkbox(label, value=(col == "harvesting_efficiency")):
             selected_fields.append(col)
 
-    return selected_station_name, selected_fields, intake_area
+    # New: downsampling selector (helps performance on long spans)
+    downsample_map = {
+        "Raw (no downsampling)": None,
+        "Every 5 minutes": "5T",
+        "Every 15 minutes": "15T",
+        "Hourly": "1H",
+        "Daily": "1D",
+    }
+    downsample_label = st.sidebar.selectbox("⏱️ Downsample for charts", list(downsample_map.keys()), index=2)
+    downsample_rule = downsample_map[downsample_label]
 
-def render_data_section(df, station_name, selected_fields):
+    return selected_station_name, selected_fields, intake_area, downsample_rule
+
+
+def render_data_section(df, station_name, selected_fields, downsample_rule=None):
     st.title(f"📊 AWH Dashboard – {station_name}")
 
     if df.empty:
         st.warning("No data found for this station.")
         return
 
-    available_fields = [col for col in selected_fields if col in df.columns and col != "timestamp"]
+    # Ensure timestamp is datetime and sorted
+    if "timestamp" not in df.columns:
+        st.warning("No 'timestamp' column in data.")
+        return
 
-    df_sorted = df.sort_values("timestamp").copy()
-    df_sorted["Date"] = df_sorted["timestamp"].dt.date
-    df_sorted["Time"] = df_sorted["timestamp"].dt.strftime("%H:%M:%S")
+    df = df.copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    df = df.dropna(subset=["timestamp"]).sort_values("timestamp")
+
+    # ---- New: Date range filter (inclusive) ----
+    min_dt = df["timestamp"].min().normalize()
+    max_dt = df["timestamp"].max().normalize()
+    default_start = max(min_dt, max_dt - pd.Timedelta(days=3))  # last 3 days by default
+    default_end = max_dt
+
+    st.sidebar.markdown("### 🗓️ Date range")
+    start_date, end_date = st.sidebar.date_input(
+        "Select start and end date",
+        value=(default_start.date(), default_end.date()),
+        min_value=min_dt.date(),
+        max_value=max_dt.date()
+    )
+
+    # Make end date inclusive by adding one day and filtering < next_day_start
+    try:
+        start_ts = pd.to_datetime(str(start_date))
+        end_ts = pd.to_datetime(str(end_date)) + pd.Timedelta(days=1)
+    except Exception:
+        start_ts = default_start
+        end_ts = default_end + pd.Timedelta(days=1)
+
+    df = df[(df["timestamp"] >= start_ts) & (df["timestamp"] < end_ts)]
+    if df.empty:
+        st.info("No data in the selected date range.")
+        return
+
+    # Optional: light downsampling for charts (table remains raw in-range)
+    def downsample_for_field(frame: pd.DataFrame, field: str) -> pd.DataFrame:
+        if not downsample_rule:
+            return frame[["timestamp", field]].dropna()
+        # Resample by mean for numeric fields
+        tmp = frame.set_index("timestamp")[[field]].dropna()
+        try:
+            out = tmp.resample(downsample_rule).mean().dropna().reset_index()
+        except Exception:
+            out = tmp.reset_index()  # fallback
+        return out.rename(columns={"index": "timestamp"})
+
+    available_fields = [c for c in selected_fields if c in df.columns and c != "timestamp"]
+
+    # Add convenient Date & Time columns for the table
+    df["Date"] = df["timestamp"].dt.date
+    df["Time"] = df["timestamp"].dt.strftime("%H:%M:%S")
 
     for field in available_fields:
         st.subheader(f"📊 {field} Overview")
@@ -59,11 +119,11 @@ def render_data_section(df, station_name, selected_fields):
 
         with col1:
             st.markdown("#### 📋 Table")
-            st.dataframe(df_sorted[["Date", "Time", field]], use_container_width=True)
+            st.dataframe(df[["Date", "Time", field]].dropna(), use_container_width=True)
 
             st.download_button(
                 label=f"⬇️ Download {field} CSV",
-                data=df_sorted[["Date", "Time", field]].to_csv(index=False),
+                data=df[["Date", "Time", field]].dropna().to_csv(index=False),
                 file_name=f"{station_name}_{field.replace(' ', '_')}.csv",
                 mime="text/csv"
             )
@@ -71,8 +131,9 @@ def render_data_section(df, station_name, selected_fields):
         with col2:
             st.markdown("#### 📈 Plot")
 
-            df_sorted[field] = pd.to_numeric(df_sorted[field], errors="coerce")
-            plot_data = df_sorted[["timestamp", field]].dropna()
+            # Coerce numeric for safer plotting
+            df[field] = pd.to_numeric(df[field], errors="coerce")
+            plot_data = df[["timestamp", field]].dropna()
 
             excluded_points = 0
             if field == "harvesting_efficiency":
@@ -83,6 +144,7 @@ def render_data_section(df, station_name, selected_fields):
                 st.warning(f"⚠️ No data available to plot for {field}.")
                 continue
 
+            # Energy per liter stays hourly bars (already aggregated meaningfully)
             if field == "energy_per_liter (kWh/L)":
                 plot_data["Hour"] = plot_data["timestamp"].dt.floor("H")
                 hourly_plot = (
@@ -93,7 +155,7 @@ def render_data_section(df, station_name, selected_fields):
                 )
 
                 chart = alt.Chart(hourly_plot).mark_bar().encode(
-                    x=alt.X("timestamp:T", title="Hour", axis=alt.Axis(format="%H:%M")),
+                    x=alt.X("timestamp:T", title="Hour", axis=alt.Axis(format="%Y-%m-%d %H:%M")),
                     y=alt.Y(field, title="Energy per Liter (kWh/L)"),
                     tooltip=["timestamp", field]
                 ).properties(width="container", height=300)
@@ -101,13 +163,16 @@ def render_data_section(df, station_name, selected_fields):
                 st.altair_chart(chart, use_container_width=True)
 
             else:
+                # Apply optional downsampling for this field
+                plot_data = downsample_for_field(plot_data, field)
+
                 y_axis = alt.Y(
                     field,
                     title=field,
                     scale=alt.Scale(domain=[0, 30]) if field == "harvesting_efficiency" else alt.Undefined
                 )
 
-                chart = alt.Chart(plot_data).mark_circle(size=60).encode(
+                chart = alt.Chart(plot_data).mark_circle(size=36).encode(
                     x=alt.X(
                         "timestamp:T",
                         title="Date & Time",
