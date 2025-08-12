@@ -120,4 +120,4 @@ def render_data_section(df, station_name, selected_fields):
                 st.altair_chart(chart, use_container_width=True)
 
             if excluded_points > 0:
-                st.caption(f"⚠️ {excluded_points} point(s) above 50% were excluded from the plot.") 
+                st.caption(f"⚠️ {excluded_points} point(s) above 50% were excluded from the plot.")
