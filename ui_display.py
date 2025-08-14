@@ -105,7 +105,7 @@ def render_data_section(df, station_name, selected_fields):
                 y_axis = alt.Y(
                     field,
                     title=field,
-                    scale=alt.Scale(domain=[0, 80]) if field == "harvesting_efficiency" else alt.Undefined
+                    scale=alt.Scale(domain=[0, 50]) if field == "harvesting_efficiency" else alt.Undefined
                 )
 
                 chart = alt.Chart(plot_data).mark_circle(size=60).encode(
