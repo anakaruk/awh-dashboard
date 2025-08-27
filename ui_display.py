@@ -23,11 +23,33 @@ def render_controls(station_list):
     )
     intake_area = intake_area_options[intake_area_label]
 
+    st.sidebar.markdown("### ⏱️ Calculation Window")
+
+    # --- Reset from ---
+    apply_reset = st.sidebar.checkbox("🔄 Reset accumulations from…", value=False)
+    reset_date = st.sidebar.date_input("Reset date", value=None, disabled=not apply_reset)
+    reset_time = st.sidebar.time_input("Reset time", value=None, disabled=not apply_reset)
+
+    # --- Pause window ---
+    apply_pause = st.sidebar.checkbox("⏸️ Pause counting between…", value=False)
+    pause_start_date = st.sidebar.date_input("Pause start date", value=None, disabled=not apply_pause)
+    pause_start_time = st.sidebar.time_input("Pause start time", value=None, disabled=not apply_pause)
+    pause_end_date = st.sidebar.date_input("Pause end date", value=None, disabled=not apply_pause)
+    pause_end_time = st.sidebar.time_input("Pause end time", value=None, disabled=not apply_pause)
+
+    # --- Freeze from ---
+    apply_freeze = st.sidebar.checkbox("🛑 Freeze outputs from…", value=False)
+    freeze_date = st.sidebar.date_input("Freeze date", value=None, disabled=not apply_freeze)
+    freeze_time = st.sidebar.time_input("Freeze time", value=None, disabled=not apply_freeze)
+
+    # Optional: adjust lag steps for efficiency
+    lag_steps = st.sidebar.number_input("Production lag steps", min_value=0, max_value=200, value=10, step=1)
+
     field_options = [
         ("❄️ Harvesting Efficiency (%)", "harvesting_efficiency"),
         ("💧 Water Production (L)", "water_production"),
-        ("🔋 Energy Per Liter (kW.hr/L)", "energy_per_liter (kWh/L)"),
-        ("🔋 Power Consumption (kW.hr)", "accumulated_energy (kWh)"),
+        ("🔋 Energy Per Liter (kWh/L)", "energy_per_liter (kWh/L)"),
+        ("🔋 Power Consumption (kWh)", "accumulated_energy (kWh)"),
         ("🌫️ Abs. Intake humidity (g/m3)", "absolute_intake_air_humidity"),
         ("🌫️ Abs. Outtake humidity (g/m3)", "absolute_outtake_air_humidity"),
         ("🌫️ Adjust Abs. Outtake humidity (g/m3)", "calibrated_outtake_air_humidity"),
@@ -49,11 +71,27 @@ def render_controls(station_list):
     if not _ALT_OK:
         st.sidebar.warning("Altair not installed — using fallback charts.")
 
-    return selected_station_name, selected_fields, intake_area
+    # Package control values back to the app
+    controls = {
+        "apply_reset": apply_reset,
+        "reset_date": reset_date,
+        "reset_time": reset_time,
+        "apply_pause": apply_pause,
+        "pause_start_date": pause_start_date,
+        "pause_start_time": pause_start_time,
+        "pause_end_date": pause_end_date,
+        "pause_end_time": pause_end_time,
+        "apply_freeze": apply_freeze,
+        "freeze_date": freeze_date,
+        "freeze_time": freeze_time,
+        "lag_steps": int(lag_steps),
+        "intake_area": float(intake_area),
+    }
+
+    return selected_station_name, selected_fields, controls
 
 
 def _plot_with_altair(plot_data: pd.DataFrame, field: str):
-    """Return an Altair chart for the given field/plot_data."""
     if field == "energy_per_liter (kWh/L)":
         plot_data = plot_data.copy()
         plot_data["Hour"] = plot_data["timestamp"].dt.floor("H")
@@ -99,7 +137,6 @@ def _plot_with_altair(plot_data: pd.DataFrame, field: str):
 
 
 def _plot_fallback(plot_data: pd.DataFrame, field: str):
-    """Fallback plot when Altair isn't available."""
     st.line_chart(plot_data.set_index("timestamp")[[field]], use_container_width=True)
 
 
@@ -135,7 +172,6 @@ def render_data_section(df, station_name, selected_fields):
         with col2:
             st.markdown("#### 📈 Plot")
 
-            # Coerce to numeric once per loop
             df_sorted[field] = pd.to_numeric(df_sorted[field], errors="coerce")
             plot_data = df_sorted[["timestamp", field]].dropna()
 
