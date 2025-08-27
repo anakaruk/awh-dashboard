@@ -21,7 +21,7 @@ def render_controls(station_list):
     intake_area_label = st.sidebar.selectbox(
         "🧲 Intake Area (m²)", list(intake_area_options.keys())
     )
-    intake_area = intake_area_options[intake_area_label]
+    intake_area = float(intake_area_options[intake_area_label])
 
     st.sidebar.markdown("### ⏱️ Calculation Window")
 
@@ -43,7 +43,7 @@ def render_controls(station_list):
     freeze_time = st.sidebar.time_input("Freeze time", value=None, disabled=not apply_freeze)
 
     # Optional: adjust lag steps for efficiency
-    lag_steps = st.sidebar.number_input("Production lag steps", min_value=0, max_value=200, value=10, step=1)
+    lag_steps = int(st.sidebar.number_input("Production lag steps", min_value=0, max_value=200, value=10, step=1))
 
     field_options = [
         ("❄️ Harvesting Efficiency (%)", "harvesting_efficiency"),
@@ -71,7 +71,6 @@ def render_controls(station_list):
     if not _ALT_OK:
         st.sidebar.warning("Altair not installed — using fallback charts.")
 
-    # Package control values back to the app
     controls = {
         "apply_reset": apply_reset,
         "reset_date": reset_date,
@@ -84,8 +83,8 @@ def render_controls(station_list):
         "apply_freeze": apply_freeze,
         "freeze_date": freeze_date,
         "freeze_time": freeze_time,
-        "lag_steps": int(lag_steps),
-        "intake_area": float(intake_area),
+        "lag_steps": lag_steps,
+        "intake_area": intake_area,
     }
 
     return selected_station_name, selected_fields, controls
