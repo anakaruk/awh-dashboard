@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime, timedelta
 
 # Optional Altair import (fallback to Streamlit charts if unavailable)
 try:
@@ -23,27 +24,19 @@ def render_controls(station_list):
     )
     intake_area = float(intake_area_options[intake_area_label])
 
-    st.sidebar.markdown("### ⏱️ Calculation Window")
-
-    # --- Reset from ---
-    apply_reset = st.sidebar.checkbox("🔄 Reset accumulations from…", value=False)
-    reset_date = st.sidebar.date_input("Reset date", value=None, disabled=not apply_reset)
-    reset_time = st.sidebar.time_input("Reset time", value=None, disabled=not apply_reset)
-
-    # --- Pause window ---
-    apply_pause = st.sidebar.checkbox("⏸️ Pause counting between…", value=False)
-    pause_start_date = st.sidebar.date_input("Pause start date", value=None, disabled=not apply_pause)
-    pause_start_time = st.sidebar.time_input("Pause start time", value=None, disabled=not apply_pause)
-    pause_end_date = st.sidebar.date_input("Pause end date", value=None, disabled=not apply_pause)
-    pause_end_time = st.sidebar.time_input("Pause end time", value=None, disabled=not apply_pause)
-
-    # --- Freeze from ---
-    apply_freeze = st.sidebar.checkbox("🛑 Freeze outputs from…", value=False)
-    freeze_date = st.sidebar.date_input("Freeze date", value=None, disabled=not apply_freeze)
-    freeze_time = st.sidebar.time_input("Freeze time", value=None, disabled=not apply_freeze)
-
-    # Optional: adjust lag steps for efficiency
-    lag_steps = int(st.sidebar.number_input("Production lag steps", min_value=0, max_value=200, value=10, step=1))
+    # --- Single, simple control: Date period ---
+    st.sidebar.markdown("### 📅 Date period")
+    # Default = วันนี้ถึงวันนี้
+    today = datetime.now().date()
+    date_range = st.sidebar.date_input(
+        "Select date range",
+        value=(today, today),  # (start_date, end_date)
+    )
+    # Streamlit returns either a date or a tuple
+    if isinstance(date_range, tuple) and len(date_range) == 2:
+        start_date, end_date = date_range
+    else:
+        start_date = end_date = date_range  # single-day selection
 
     field_options = [
         ("❄️ Harvesting Efficiency (%)", "harvesting_efficiency"),
@@ -72,19 +65,9 @@ def render_controls(station_list):
         st.sidebar.warning("Altair not installed — using fallback charts.")
 
     controls = {
-        "apply_reset": apply_reset,
-        "reset_date": reset_date,
-        "reset_time": reset_time,
-        "apply_pause": apply_pause,
-        "pause_start_date": pause_start_date,
-        "pause_start_time": pause_start_time,
-        "pause_end_date": pause_end_date,
-        "pause_end_time": pause_end_time,
-        "apply_freeze": apply_freeze,
-        "freeze_date": freeze_date,
-        "freeze_time": freeze_time,
-        "lag_steps": lag_steps,
         "intake_area": intake_area,
+        "date_start": start_date,
+        "date_end": end_date,
     }
 
     return selected_station_name, selected_fields, controls
