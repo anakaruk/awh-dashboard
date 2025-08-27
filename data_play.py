@@ -16,14 +16,6 @@ def _block_ids_from_resets(reset_flags: pd.Series) -> pd.Series:
     return rf.astype(int).cumsum()
 
 
-def _cumsum_with_resets(values: pd.Series, reset_flags: Optional[pd.Series] = None) -> pd.Series:
-    """Cumulative sum that restarts to 0 whenever reset_flags is True."""
-    if reset_flags is None:
-        return values.cumsum()
-    blocks = _block_ids_from_resets(reset_flags)
-    return values.groupby(blocks).cumsum()
-
-
 def _freeze_after_flag(series: pd.Series, freeze: Optional[pd.Series]) -> pd.Series:
     """Freeze (carry forward) cumulative series after the first True in freeze flag."""
     if freeze is None:
@@ -170,13 +162,8 @@ def process_data(
             offset = 0
         df["calibrated_outtake_air_humidity"] = df["absolute_outtake_air_humidity"] + offset
 
-    # ---------------- Water production from weight ----------------
-    if "weight" in df.columns:
-        df["water_production"] = calculate_water_production(df["weight"])  # running total; will be block-reset below
-    else:
-        print("⚠️ No 'weight' column found for water production")
-
-    # ---------------- Intake water step (from AH & velocity) ----------------
+    # ---------------- Step terms ----------------
+    # Intake water step (L)
     if {"absolute_intake_air_humidity", "intake_air_velocity (m/s)", "sample_interval"}.issubset(df.columns):
         step_intake = []
         for _, row in df.iterrows():
@@ -192,7 +179,7 @@ def process_data(
     else:
         df["intake_step (L)"] = 0.0
 
-    # ---------------- Energy from power ----------------
+    # Energy step (kWh) from instantaneous power (W)
     if {"power", "timestamp"}.issubset(df.columns):
         try:
             freq_seconds = _safe_median(df["timestamp"].diff().dt.total_seconds().iloc[1:], 0.0)
@@ -204,35 +191,19 @@ def process_data(
     else:
         df["energy_step_from_power (kWh)"] = 0.0
 
-    # ---------------- Hourly energy per liter (diagnostic) ----------------
-    if {"timestamp", "power"}.issubset(df.columns):
-        df["timestamp_hour"] = df["timestamp"].dt.floor("H")
-        # If power is cumulative Wh, this makes a non-negative step; otherwise use energy_step_from_power above
-        df["energy_step (Wh)"] = df["power"].diff().clip(lower=0).fillna(0)
-        df["energy_step (kWh)"] = df["energy_step (Wh)"] / 1000.0
-        if "weight" in df.columns:
-            df["weight_diff"] = df["weight"].diff().clip(lower=0).fillna(0)
-            df["water_step (L)"] = df["weight_diff"] / 1000.0
-        else:
-            df["water_step (L)"] = 0.0
-        df["step_energy_per_liter"] = df.apply(
-            lambda row: (row["energy_step (kWh)"] / row["water_step (L)"]) if row["water_step (L)"] > 0 else None,
-            axis=1,
-        )
-        hourly = (
-            df.groupby("timestamp_hour")["step_energy_per_liter"]
-              .mean()
-              .rename("energy_per_liter (kWh/L)")
-              .reset_index()
-        )
-        df = df.merge(hourly, on="timestamp_hour", how="left")
+    # ---------------- Optional water cumulative from weight ----------------
+    if "weight" in df.columns:
+        # Build a raw cumulative from weight just to preserve your original logic,
+        # but we will convert it to block-wise steps later so it starts at 0 in each block.
+        df["water_production_raw"] = calculate_water_production(df["weight"])
+    else:
+        df["water_production_raw"] = np.nan
+        print("⚠️ No 'weight' column found for water production")
 
-    # ---------------- Apply pause (counting) mask to step terms ----------------
+    # ---------------- Apply pause (counting) mask to step terms *before* cumsums ----------------
     counting = df[count_col] if (count_col and count_col in df.columns) else None
     df["intake_step (L)"] = _apply_pause_mask(df["intake_step (L)"], counting)
-    if "water_step (L)" in df.columns:
-        df["water_step (L)"] = _apply_pause_mask(df["water_step (L)"], counting)
-    df["energy_step_from_power (kWh)"] = _apply_pause_mask(df["energy_step_from_power (kWh)"], counting)
+    df["energy_step (kWh)"] = _apply_pause_mask(df["energy_step_from_power (kWh)"], counting)
 
     # ---------------- Build reset blocks (per session then per reset) ----------------
     if session_col and session_col in df.columns:
@@ -250,35 +221,52 @@ def process_data(
         else:
             df["_block_id"] = 0
 
-    # ---------------- Accumulate within blocks ----------------
-    df["accumulated_intake_water"] = df.groupby(["_block_id"])["intake_step (L)"].cumsum().round(3)
+    # ---------------- Block-wise accumulations (start at 0 exactly at reset row) ----------------
+    df["accumulated_intake_water"] = df.groupby("_block_id")["intake_step (L)"].cumsum().round(3)
+    df["accumulated_energy (kWh)"] = df.groupby("_block_id")["energy_step (kWh)"].cumsum().round(6)
 
-    if "water_production" in df.columns:
-        # convert the previously built running total into steps, then re-cumsum in each block
-        prod_step = df.groupby("_block_id")["water_production"].diff().fillna(df["water_production"])
-        prod_step = prod_step.clip(lower=0)
+    # Water production: convert raw cumulative to steps, mask by counting, then cumsum per block
+    if "water_production_raw" in df.columns:
+        prod_step = df.groupby("_block_id")["water_production_raw"].diff()   # step per row within block
+        prod_step = prod_step.clip(lower=0).fillna(0.0)                      # first row of block = 0
+        prod_step = _apply_pause_mask(prod_step, counting)                   # respect pause
         df["production_step (L)"] = prod_step
         df["water_production"] = df.groupby("_block_id")["production_step (L)"].cumsum().round(3)
-
-    df["energy_step (kWh)"] = df["energy_step_from_power (kWh)"]
-    df["accumulated_energy (kWh)"] = df.groupby(["_block_id"])["energy_step (kWh)"].cumsum().round(6)
+    else:
+        df["production_step (L)"] = 0.0
+        df["water_production"] = 0.0
 
     # ---------------- Freeze outputs after a flag ----------------
     freeze = df[freeze_col] if (freeze_col and freeze_col in df.columns) else None
     if freeze is not None and freeze.fillna(False).any():
-        for _, idx in df.groupby(["_block_id"]).groups.items():
+        for _, idx in df.groupby("_block_id").groups.items():
             sub = df.loc[idx]
             f = sub[freeze_col].fillna(False).astype(bool)
             df.loc[idx, "accumulated_intake_water"] = _freeze_after_flag(sub["accumulated_intake_water"], f)
-            if "water_production" in df.columns:
-                df.loc[idx, "water_production"] = _freeze_after_flag(sub["water_production"], f)
+            df.loc[idx, "water_production"] = _freeze_after_flag(sub["water_production"], f)
             df.loc[idx, "accumulated_energy (kWh)"] = _freeze_after_flag(sub["accumulated_energy (kWh)"], f)
+
+    # ---------------- Hourly energy-per-liter (use our step terms after masking) ----------------
+    if "timestamp" in df.columns:
+        df["timestamp_hour"] = df["timestamp"].dt.floor("H")
+        # step-based EPL per row; ignore rows with zero water step to avoid division by zero
+        df["step_energy_per_liter"] = df.apply(
+            lambda r: (r["energy_step (kWh)"] / r["production_step (L)"]) if r.get("production_step (L)", 0) > 0 else None,
+            axis=1,
+        )
+        hourly = (
+            df.groupby("timestamp_hour")["step_energy_per_liter"]
+              .mean()
+              .rename("energy_per_liter (kWh/L)")
+              .reset_index()
+        )
+        df = df.merge(hourly, on="timestamp_hour", how="left")
 
     # ---------------- Harvesting efficiency ----------------
     if {"accumulated_intake_water", "water_production"}.issubset(df.columns):
-        df["intake_step"] = df.groupby(["_block_id"])["accumulated_intake_water"].diff()
-        df["production_step"] = df.groupby(["_block_id"])["water_production"].diff()
-        df["production_step_lagged"] = df.groupby(["_block_id"])["production_step"].shift(-int(lag_steps))
+        df["intake_step"] = df.groupby("_block_id")["accumulated_intake_water"].diff()
+        df["production_step_no_lag"] = df.groupby("_block_id")["water_production"].diff()
+        df["production_step_lagged"] = df.groupby("_block_id")["production_step_no_lag"].shift(-int(lag_steps))
         df["harvesting_efficiency"] = df.apply(
             lambda row: round((row["production_step_lagged"] / row["intake_step"]) * 100, 2)
             if pd.notnull(row["production_step_lagged"]) and pd.notnull(row["intake_step"]) and row["intake_step"] > 0
