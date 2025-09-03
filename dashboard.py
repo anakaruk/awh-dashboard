@@ -41,29 +41,29 @@ def compute_station_status(stations, lookback_min=10):
             ts_az = _to_az(ts)
             latest = ts_az.max()
             last_seen[s] = latest
-            status[s] = (latest >= threshold)
+            status[s] = latest >= threshold
         except Exception:
             status[s] = False
             last_seen[s] = None
 
     return status, last_seen
 
-# 🔌 Load list of stations
+# 🔌 Load stations
 stations = get_station_list()
 if not stations:
     st.warning("⚠️ No stations with data available.")
     st.stop()
 
-# 🟢 Who is online in last 10 minutes
+# 🟢 Online status (10 นาทีล่าสุด)
 status, last_seen = compute_station_status(stations, lookback_min=10)
-default_station = next((s for s in stations if status.get(s)), stations[0])
 
-# 🧱 Top status bar
+# 🧱 แถบสถานะด้านบน (ไม่แตะ ui_display)
 st.markdown("### 🔌 Station Status (last 10 minutes)")
 cols = st.columns(min(4, len(stations)))
 for i, s in enumerate(stations):
     with cols[i % len(cols)]:
-        indicator = "🟢 **Online**" if status.get(s) else "🔴 Offline"
+        online = status.get(s, False)
+        indicator = "🟢 **Online**" if online else "🔴 Offline"
         seen_txt = "—"
         if last_seen.get(s) is not None:
             seen_txt = last_seen[s].strftime("%Y-%m-%d %H:%M:%S")
@@ -80,17 +80,8 @@ for i, s in enumerate(stations):
 
 st.divider()
 
-# 🎛 Sidebar controls (backward compatible call)
-try:
-    station, selected_fields, intake_area = render_controls(
-        station_list=stations,
-        default_station=default_station,
-        station_status=status,
-        last_seen_map=last_seen,
-    )
-except TypeError:
-    # fallback for old ui_display.py that only accepts (station_list)
-    station, selected_fields, intake_area = render_controls(stations)
+# 🎛 Sidebar controls — เรียกแบบเดิมพารามิเตอร์เดียว (กันชนทุกเวอร์ชันของ ui_display.py)
+station, selected_fields, intake_area = render_controls(stations)
 
 # 📥 Load data
 df_raw = load_station_data(station)
@@ -101,13 +92,13 @@ if df_raw.empty:
 # 🧮 Process
 df_processed = process_data(df_raw, intake_area=intake_area)
 
-# ⏱️ Localize time to AZ
+# ⏱️ Localize time (AZ)
 if df_processed["timestamp"].dt.tz is None:
     df_processed["timestamp"] = df_processed["timestamp"].dt.tz_localize("UTC").dt.tz_convert(ARIZONA_TZ)
 else:
     df_processed["timestamp"] = df_processed["timestamp"].dt.tz_convert(ARIZONA_TZ)
 
-# 🕒 Latest time + online badge
+# 🕒 Latest time + badge
 latest_time = df_processed["timestamp"].max()
 badge = "🟢 **Online**" if status.get(station) else "🔴 Offline"
 st.markdown(
