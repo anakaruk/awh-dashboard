@@ -1,88 +1,56 @@
 import streamlit as st
 import pandas as pd
 import pytz
-from datetime import datetime, timedelta
-
 from firestore_loader import get_station_list, load_station_data
 from ui_display import render_controls, render_data_section
 from data_play import process_data
 
+# 🌐 Configure page
 st.set_page_config(page_title="AWH Station Dashboard", layout="wide")
 st.title("📊 AWH Station Monitoring Dashboard")
 
-ARIZONA_TZ = pytz.timezone("America/Phoenix")
-
-def _to_az(dt_series: pd.Series) -> pd.Series:
-    if dt_series.dt.tz is None:
-        return dt_series.dt.tz_localize("UTC").dt.tz_convert(ARIZONA_TZ)
-    return dt_series.dt.tz_convert(ARIZONA_TZ)
-
-@st.cache_data(show_spinner=False, ttl=60)
-def compute_station_status(stations, lookback_min=10):
-    status = {}
-    last_seen = {}
-    threshold = datetime.now(ARIZONA_TZ) - timedelta(minutes=lookback_min)
-    for s in stations:
-        try:
-            df = load_station_data(s)
-            if df.empty or "timestamp" not in df.columns:
-                status[s] = False; last_seen[s] = None; continue
-            ts = pd.to_datetime(df["timestamp"], errors="coerce").dropna()
-            if ts.empty:
-                status[s] = False; last_seen[s] = None; continue
-            ts_az = _to_az(ts)
-            latest = ts_az.max()
-            last_seen[s] = latest
-            status[s] = latest >= threshold
-        except Exception:
-            status[s] = False; last_seen[s] = None
-    return status, last_seen
-
+# 🔌 Load list of stations
 stations = get_station_list()
+
 if not stations:
     st.warning("⚠️ No stations with data available.")
-    st.stop()
-
-status, last_seen = compute_station_status(stations, lookback_min=10)
-
-st.markdown("### 🔌 Station Status (last 10 minutes)")
-cols = st.columns(min(4, len(stations)))
-for i, s in enumerate(stations):
-    with cols[i % len(cols)]:
-        indicator = "🟢 **Online**" if status.get(s) else "🔴 Offline"
-        seen_txt = "—" if last_seen.get(s) is None else last_seen[s].strftime("%Y-%m-%d %H:%M:%S")
-        st.markdown(
-            f"""
-            <div style="padding:10px;border:1px solid #eee;border-radius:12px;">
-              <div style="font-weight:600;margin-bottom:4px;">{s}</div>
-              <div>{indicator}</div>
-              <div style="font-size:12px;color:#6b7280;">Last seen: {seen_txt} (AZ)</div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-st.divider()
-
-# เรียกแบบเดิม (พารามิเตอร์เดียว) เพื่อกันชนทุกเวอร์ชันของ ui_display.py
-station, selected_fields, intake_area = render_controls(stations)
-
-df_raw = load_station_data(station)
-if df_raw.empty:
-    st.warning(f"⚠️ No data found for station: {station}")
-    st.stop()
-
-df_processed = process_data(df_raw, intake_area=intake_area)
-
-if df_processed["timestamp"].dt.tz is None:
-    df_processed["timestamp"] = df_processed["timestamp"].dt.tz_localize("UTC").dt.tz_convert(ARIZONA_TZ)
 else:
-    df_processed["timestamp"] = df_processed["timestamp"].dt.tz_convert(ARIZONA_TZ)
+    # 🎛 Sidebar controls (station, intake area, selected fields)
+    station, selected_fields, intake_area = render_controls(stations)
 
-latest_time = df_processed["timestamp"].max()
-badge = "🟢 **Online**" if status.get(station) else "🔴 Offline"
-st.markdown(
-    f"**Last Updated (Local Time - Arizona):** {latest_time.strftime('%Y-%m-%d %H:%M:%S')} &nbsp;&nbsp; {badge}"
-)
+    # 📥 Load raw data
+    df_raw = load_station_data(station)
 
-render_data_section(df_processed, station, selected_fields)
+    if df_raw.empty:
+        st.warning(f"⚠️ No data found for station: {station}")
+    else:
+        # 🧮 Process data (rename, compute metrics, etc.)
+        df_processed = process_data(df_raw, intake_area=intake_area)
+
+        # ⏱️ Convert timestamp to local timezone (Arizona)
+        local_tz = pytz.timezone("America/Phoenix")
+        if df_processed["timestamp"].dt.tz is None:
+            df_processed["timestamp"] = (
+                df_processed["timestamp"].dt.tz_localize("UTC").dt.tz_convert(local_tz)
+            )
+        else:
+            df_processed["timestamp"] = df_processed["timestamp"].dt.tz_convert(local_tz)
+
+        # 📅 Default date filter: today 00:00 → now
+        today_start = pd.Timestamp.now(tz=local_tz).normalize()      # วันนี้ 00:00
+        now = pd.Timestamp.now(tz=local_tz)                          # เวลาปัจจุบัน
+        df_processed = df_processed[
+            (df_processed["timestamp"] >= today_start) & (df_processed["timestamp"] <= now)
+        ]
+
+        if df_processed.empty:
+            st.info("No data for today yet. Waiting for incoming data…")
+        else:
+            # 🕒 Display most recent update time
+            latest_time = df_processed["timestamp"].max()
+            st.markdown(
+                f"**Last Updated (Local Time - Arizona):** {latest_time.strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+
+            # 📊 Show dashboard
+            render_data_section(df_processed, station, selected_fields)
