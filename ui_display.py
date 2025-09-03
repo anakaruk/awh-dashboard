@@ -1,42 +1,59 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta
+import altair as alt
 
-# Optional Altair import (fallback to Streamlit charts if unavailable)
-try:
-    import altair as alt
-    _ALT_OK = True
-except Exception:
-    _ALT_OK = False
+def _status_chip(name: str, is_online: bool, last_seen_text: str) -> str:
+    dot = "🟢" if is_online else "🔴"
+    return f"{name}  {dot}"
 
+def render_controls(station_list, default_station=None, station_status=None, last_seen_map=None):
+    """
+    เพิ่ม:
+      - default_station: เลือกสถานีเริ่มต้น (ใช้ตัวที่ออนไลน์เป็นค่าเริ่มต้นจาก dashboard.py)
+      - station_status, last_seen_map: dict สำหรับแสดงจุดสถานะใน selectbox
+    """
+    station_status = station_status or {}
+    last_seen_map = last_seen_map or {}
 
-def render_controls(station_list):
     st.sidebar.header("🔧 Controls")
-    selected_station_name = st.sidebar.selectbox("📍 Select Station", station_list)
+
+    # เตรียม label ให้ selectbox มีจุดสถานะหน้า station
+    labels = []
+    value_to_label = {}
+    for s in station_list:
+        last_txt = last_seen_map.get(s).strftime("%Y-%m-%d %H:%M:%S") + " AZ" if last_seen_map.get(s) is not None else "—"
+        lbl = _status_chip(s, station_status.get(s, False), last_txt)
+        labels.append(lbl)
+        value_to_label[s] = lbl
+
+    # index ของ default
+    if default_station in station_list:
+        default_index = station_list.index(default_station)
+    else:
+        default_index = 0
+
+    selected_label = st.sidebar.selectbox(
+        "📍 Select Station",
+        options=labels,
+        index=default_index,
+        help="สถานีที่ขึ้น 🟢 คือมีข้อมูลเข้ามาภายใน 10 นาทีล่าสุด"
+    )
+
+    # map label กลับเป็นชื่อสถานี
+    selected_station_name = station_list[labels.index(selected_label)]
 
     intake_area_options = {
         "AquaPars 1: 0.12 m²": 0.12,
         "DewStand 1: 0.04 m²": 0.04,
-        "T50 1: 0.18 m²": 0.18,
+        "T50 1: 0.18 m²": 0.18
     }
-    intake_area_label = st.sidebar.selectbox(
-        "🧲 Intake Area (m²)", list(intake_area_options.keys())
-    )
-    intake_area = float(intake_area_options[intake_area_label])
 
-    # --- Single, simple control: Date period ---
-    st.sidebar.markdown("### 📅 Date period")
-    # Default = วันนี้ถึงวันนี้
-    today = datetime.now().date()
-    date_range = st.sidebar.date_input(
-        "Select date range",
-        value=(today, today),  # (start_date, end_date)
-    )
-    # Streamlit returns either a date or a tuple
-    if isinstance(date_range, tuple) and len(date_range) == 2:
-        start_date, end_date = date_range
-    else:
-        start_date = end_date = date_range  # single-day selection
+    intake_area_label = st.sidebar.selectbox("🧲 Intake Area (m²)", list(intake_area_options.keys()))
+    intake_area = intake_area_options[intake_area_label]
+
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Date period")
+    # (ถ้าต้องการ date range filter จริง ๆ สามารถเพิ่ม widget และนำไปใช้กรอง df ภายนอกได้)
 
     field_options = [
         ("❄️ Harvesting Efficiency (%)", "harvesting_efficiency"),
@@ -61,65 +78,7 @@ def render_controls(station_list):
         if st.sidebar.checkbox(label, value=(col == "harvesting_efficiency")):
             selected_fields.append(col)
 
-    if not _ALT_OK:
-        st.sidebar.warning("Altair not installed — using fallback charts.")
-
-    controls = {
-        "intake_area": intake_area,
-        "date_start": start_date,
-        "date_end": end_date,
-    }
-
-    return selected_station_name, selected_fields, controls
-
-
-def _plot_with_altair(plot_data: pd.DataFrame, field: str):
-    if field == "energy_per_liter (kWh/L)":
-        plot_data = plot_data.copy()
-        plot_data["Hour"] = plot_data["timestamp"].dt.floor("H")
-        hourly_plot = (
-            plot_data.groupby("Hour")[field]
-            .mean()
-            .reset_index()
-            .rename(columns={"Hour": "timestamp"})
-        )
-        chart = (
-            alt.Chart(hourly_plot)
-            .mark_bar()
-            .encode(
-                x=alt.X("timestamp:T", title="Hour", axis=alt.Axis(format="%H:%M")),
-                y=alt.Y(field, title="Energy per Liter (kWh/L)"),
-                tooltip=["timestamp", field],
-            )
-            .properties(width="container", height=300)
-        )
-        return chart
-
-    y_axis = alt.Y(
-        field,
-        title=field,
-        scale=alt.Scale(domain=[0, 50]) if field == "harvesting_efficiency" else alt.Undefined,
-    )
-
-    chart = (
-        alt.Chart(plot_data)
-        .mark_circle(size=60)
-        .encode(
-            x=alt.X(
-                "timestamp:T",
-                title="Date & Time",
-                axis=alt.Axis(format="%Y-%m-%d %H:%M", labelAngle=-45),
-            ),
-            y=y_axis,
-            tooltip=["timestamp", field],
-        )
-        .properties(width="container", height=300)
-    )
-    return chart
-
-
-def _plot_fallback(plot_data: pd.DataFrame, field: str):
-    st.line_chart(plot_data.set_index("timestamp")[[field]], use_container_width=True)
+    return selected_station_name, selected_fields, intake_area
 
 
 def render_data_section(df, station_name, selected_fields):
@@ -148,7 +107,7 @@ def render_data_section(df, station_name, selected_fields):
                 label=f"⬇️ Download {field} CSV",
                 data=df_sorted[["Date", "Time", field]].to_csv(index=False),
                 file_name=f"{station_name}_{field.replace(' ', '_')}.csv",
-                mime="text/csv",
+                mime="text/csv"
             )
 
         with col2:
@@ -166,11 +125,41 @@ def render_data_section(df, station_name, selected_fields):
                 st.warning(f"⚠️ No data available to plot for {field}.")
                 continue
 
-            if _ALT_OK:
-                chart = _plot_with_altair(plot_data, field)
+            if field == "energy_per_liter (kWh/L)":
+                plot_data["Hour"] = plot_data["timestamp"].dt.floor("H")
+                hourly_plot = (
+                    plot_data.groupby("Hour")[field]
+                    .mean()
+                    .reset_index()
+                    .rename(columns={"Hour": "timestamp"})
+                )
+
+                chart = alt.Chart(hourly_plot).mark_bar().encode(
+                    x=alt.X("timestamp:T", title="Hour", axis=alt.Axis(format="%H:%M")),
+                    y=alt.Y(field, title="Energy per Liter (kWh/L)"),
+                    tooltip=["timestamp", field]
+                ).properties(width="container", height=300)
+
                 st.altair_chart(chart, use_container_width=True)
+
             else:
-                _plot_fallback(plot_data, field)
+                y_axis = alt.Y(
+                    field,
+                    title=field,
+                    scale=alt.Scale(domain=[0, 30]) if field == "harvesting_efficiency" else alt.Undefined
+                )
+
+                chart = alt.Chart(plot_data).mark_circle(size=60).encode(
+                    x=alt.X(
+                        "timestamp:T",
+                        title="Date & Time",
+                        axis=alt.Axis(format="%Y-%m-%d %H:%M", labelAngle=-45)
+                    ),
+                    y=y_axis,
+                    tooltip=["timestamp", field]
+                ).properties(width="container", height=300)
+
+                st.altair_chart(chart, use_container_width=True)
 
             if excluded_points > 0:
-                st.caption("⚠️ Some points above 50% were excluded from the plot.")
+                st.caption(f"⚠️ {excluded_points} point(s) above 50% were excluded from the plot.")
