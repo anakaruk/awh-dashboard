@@ -162,6 +162,16 @@ def process_data(
             offset = 0
         df["calibrated_outtake_air_humidity"] = df["absolute_outtake_air_humidity"] + offset
 
+    # ---------------- Pump-aware counting mask ----------------
+    # ถ้าไม่ส่ง count_col มา แต่มี pump_status ให้ใช้ pump_status==0 เป็นช่วงที่ "นับ"
+    counting = None
+    if count_col and (count_col in df.columns):
+        counting = df[count_col]
+    elif "pump_status" in df.columns:
+        df["pump_status"] = pd.to_numeric(df["pump_status"], errors="coerce").fillna(0).astype(int)
+        df["__counting"] = (df["pump_status"] == 0)  # ปั๊มปิด → นับ, ปั๊มเปิด → pause
+        counting = df["__counting"]
+
     # ---------------- Step terms ----------------
     # Intake water step (L)
     if {"absolute_intake_air_humidity", "intake_air_velocity (m/s)", "sample_interval"}.issubset(df.columns):
@@ -201,7 +211,6 @@ def process_data(
         print("⚠️ No 'weight' column found for water production")
 
     # ---------------- Apply pause (counting) mask to step terms *before* cumsums ----------------
-    counting = df[count_col] if (count_col and count_col in df.columns) else None
     df["intake_step (L)"] = _apply_pause_mask(df["intake_step (L)"], counting)
     df["energy_step (kWh)"] = _apply_pause_mask(df["energy_step_from_power (kWh)"], counting)
 
@@ -228,8 +237,8 @@ def process_data(
     # Water production: convert raw cumulative to steps, mask by counting, then cumsum per block
     if "water_production_raw" in df.columns:
         prod_step = df.groupby("_block_id")["water_production_raw"].diff()   # step per row within block
-        prod_step = prod_step.clip(lower=0).fillna(0.0)                      # first row of block = 0
-        prod_step = _apply_pause_mask(prod_step, counting)                   # respect pause
+        prod_step = prod_step.clip(lower=0).fillna(0.0)                      # first row of block = 0 (ไม่ให้ติดลบ)
+        prod_step = _apply_pause_mask(prod_step, counting)                   # respect pause (pump ON)
         df["production_step (L)"] = prod_step
         df["water_production"] = df.groupby("_block_id")["production_step (L)"].cumsum().round(3)
     else:
@@ -262,16 +271,31 @@ def process_data(
         )
         df = df.merge(hourly, on="timestamp_hour", how="left")
 
-    # ---------------- Harvesting efficiency ----------------
-    if {"accumulated_intake_water", "water_production"}.issubset(df.columns):
-        df["intake_step"] = df.groupby("_block_id")["accumulated_intake_water"].diff()
-        df["production_step_no_lag"] = df.groupby("_block_id")["water_production"].diff()
-        df["production_step_lagged"] = df.groupby("_block_id")["production_step_no_lag"].shift(-int(lag_steps))
-        df["harvesting_efficiency"] = df.apply(
-            lambda row: round((row["production_step_lagged"] / row["intake_step"]) * 100, 2)
-            if pd.notnull(row["production_step_lagged"]) and pd.notnull(row["intake_step"]) and row["intake_step"] > 0
-            else 0.0,
-            axis=1,
+    # ---------------- Harvesting efficiency (rolling window with lag) ----------------
+    # ใช้หน้าต่างกว้าง win (= lag_steps) รวม intake/prod แล้วเลื่อน production ไปอนาคต win แถว
+    if {"intake_step (L)", "production_step (L)", "_block_id"}.issubset(df.columns):
+        win = max(int(lag_steps), 1)
+        minp = win  # ให้คำนวณเมื่อมีข้อมูลครบหน้าต่าง เพื่อกันค่าเพี้ยน
+
+        def _eff(gr):
+            intake_step = gr["intake_step (L)"].astype(float)
+            prod_step   = gr["production_step (L)"].astype(float)
+
+            intake_roll = intake_step.rolling(window=win, min_periods=minp).sum()
+            prod_shift  = prod_step.shift(-win)  # ชดเชยดีเลย์
+            prod_roll   = prod_shift.rolling(window=win, min_periods=minp).sum()
+
+            eff = 100.0 * (prod_roll / intake_roll)
+            return eff
+
+        df["harvesting_efficiency"] = (
+            df.groupby("_block_id", group_keys=False)
+              .apply(_eff)
+              .round(2)
         )
+        # ถ้าต้องการกันค่าสุดโต่งจาก noise:
+        # df["harvesting_efficiency"] = df["harvesting_efficiency"].clip(lower=0, upper=150)
+    else:
+        df["harvesting_efficiency"] = np.nan
 
     return df
