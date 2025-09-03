@@ -7,7 +7,6 @@ from firestore_loader import get_station_list, load_station_data
 from ui_display import render_controls, render_data_section
 from data_play import process_data
 
-# 🌐 Configure page
 st.set_page_config(page_title="AWH Station Dashboard", layout="wide")
 st.title("📊 AWH Station Monitoring Dashboard")
 
@@ -23,50 +22,35 @@ def compute_station_status(stations, lookback_min=10):
     status = {}
     last_seen = {}
     threshold = datetime.now(ARIZONA_TZ) - timedelta(minutes=lookback_min)
-
     for s in stations:
         try:
             df = load_station_data(s)
             if df.empty or "timestamp" not in df.columns:
-                status[s] = False
-                last_seen[s] = None
-                continue
-
+                status[s] = False; last_seen[s] = None; continue
             ts = pd.to_datetime(df["timestamp"], errors="coerce").dropna()
             if ts.empty:
-                status[s] = False
-                last_seen[s] = None
-                continue
-
+                status[s] = False; last_seen[s] = None; continue
             ts_az = _to_az(ts)
             latest = ts_az.max()
             last_seen[s] = latest
             status[s] = latest >= threshold
         except Exception:
-            status[s] = False
-            last_seen[s] = None
-
+            status[s] = False; last_seen[s] = None
     return status, last_seen
 
-# 🔌 Load stations
 stations = get_station_list()
 if not stations:
     st.warning("⚠️ No stations with data available.")
     st.stop()
 
-# 🟢 Online status (10 นาทีล่าสุด)
 status, last_seen = compute_station_status(stations, lookback_min=10)
 
-# 🧱 แถบสถานะด้านบน (ไม่แตะ ui_display)
 st.markdown("### 🔌 Station Status (last 10 minutes)")
 cols = st.columns(min(4, len(stations)))
 for i, s in enumerate(stations):
     with cols[i % len(cols)]:
-        online = status.get(s, False)
-        indicator = "🟢 **Online**" if online else "🔴 Offline"
-        seen_txt = "—"
-        if last_seen.get(s) is not None:
-            seen_txt = last_seen[s].strftime("%Y-%m-%d %H:%M:%S")
+        indicator = "🟢 **Online**" if status.get(s) else "🔴 Offline"
+        seen_txt = "—" if last_seen.get(s) is None else last_seen[s].strftime("%Y-%m-%d %H:%M:%S")
         st.markdown(
             f"""
             <div style="padding:10px;border:1px solid #eee;border-radius:12px;">
@@ -80,30 +64,25 @@ for i, s in enumerate(stations):
 
 st.divider()
 
-# 🎛 Sidebar controls — เรียกแบบเดิมพารามิเตอร์เดียว (กันชนทุกเวอร์ชันของ ui_display.py)
+# เรียกแบบเดิม (พารามิเตอร์เดียว) เพื่อกันชนทุกเวอร์ชันของ ui_display.py
 station, selected_fields, intake_area = render_controls(stations)
 
-# 📥 Load data
 df_raw = load_station_data(station)
 if df_raw.empty:
     st.warning(f"⚠️ No data found for station: {station}")
     st.stop()
 
-# 🧮 Process
 df_processed = process_data(df_raw, intake_area=intake_area)
 
-# ⏱️ Localize time (AZ)
 if df_processed["timestamp"].dt.tz is None:
     df_processed["timestamp"] = df_processed["timestamp"].dt.tz_localize("UTC").dt.tz_convert(ARIZONA_TZ)
 else:
     df_processed["timestamp"] = df_processed["timestamp"].dt.tz_convert(ARIZONA_TZ)
 
-# 🕒 Latest time + badge
 latest_time = df_processed["timestamp"].max()
 badge = "🟢 **Online**" if status.get(station) else "🔴 Offline"
 st.markdown(
     f"**Last Updated (Local Time - Arizona):** {latest_time.strftime('%Y-%m-%d %H:%M:%S')} &nbsp;&nbsp; {badge}"
 )
 
-# 📊 Render
 render_data_section(df_processed, station, selected_fields)
