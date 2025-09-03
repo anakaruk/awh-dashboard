@@ -18,6 +18,16 @@ def render_controls(station_list):
     intake_area_label = st.sidebar.selectbox("Intake Area (m²)", list(intake_area_options.keys()))
     intake_area = intake_area_options[intake_area_label]
 
+    # Date period
+    st.sidebar.subheader("Date period")
+    today = pd.Timestamp.now().date()
+    picked = st.sidebar.date_input("Select date range", value=(today, today))
+    # Normalize return shape to (start_date, end_date)
+    if isinstance(picked, (list, tuple)) and len(picked) == 2:
+        start_date, end_date = picked[0], picked[1]
+    else:
+        start_date = end_date = picked if not isinstance(picked, (list, tuple)) else today
+
     # Field selection
     field_options = [
         ("Harvesting Efficiency (%)", "harvesting_efficiency"),
@@ -42,7 +52,8 @@ def render_controls(station_list):
         if st.sidebar.checkbox(label, value=(col == "harvesting_efficiency")):
             selected_fields.append(col)
 
-    return selected_station_name, selected_fields, intake_area
+    # Return selected values including date range
+    return selected_station_name, selected_fields, intake_area, (start_date, end_date)
 
 
 def render_data_section(df, station_name, selected_fields):
@@ -80,14 +91,12 @@ def render_data_section(df, station_name, selected_fields):
         with col2:
             st.markdown("**Plot**")
 
-            # Make sure y is numeric
             num = pd.to_numeric(df_sorted[field], errors="coerce")
             plot_data = df_sorted.loc[num.notna(), ["timestamp", field]].copy()
             if plot_data.empty:
                 st.warning(f"No data available to plot for {field}.")
                 continue
 
-            # Special handling for energy per liter: hourly averages as bars
             if field == "energy_per_liter (kWh/L)":
                 plot_data["Hour"] = plot_data["timestamp"].dt.floor("H")
                 hourly = (
@@ -107,9 +116,7 @@ def render_data_section(df, station_name, selected_fields):
                     .properties(width="container", height=300)
                 )
                 st.altair_chart(chart, use_container_width=True)
-
             else:
-                # Optional clamp for harvesting_efficiency spikes > 50
                 y = alt.Y(
                     field,
                     title=field,
