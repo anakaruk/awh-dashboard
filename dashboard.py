@@ -30,8 +30,8 @@ stations = get_station_list()
 if not stations:
     st.warning("⚠️ No stations with data available.")
 else:
-    # 🎛 Sidebar controls (now returns controls dict)
-    station, selected_fields, controls = render_controls(stations)
+    # 🎛 Sidebar controls (UI now also returns date range)
+    station, selected_fields, controls, (start_date, end_date) = render_controls(stations)
 
     # 📥 Load raw data
     df_raw = load_station_data(station)
@@ -45,10 +45,23 @@ else:
         df_raw = df_raw.dropna(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
 
         if df_raw["timestamp"].dt.tz is None:
-            # assume incoming is UTC; convert to Arizona
             df_raw["timestamp"] = df_raw["timestamp"].dt.tz_localize("UTC").dt.tz_convert(local_tz)
         else:
             df_raw["timestamp"] = df_raw["timestamp"].dt.tz_convert(local_tz)
+
+        # --- Apply date range filter ---
+        if end_date < start_date:
+            start_date, end_date = end_date, start_date
+        start_dt = pd.Timestamp(start_date).tz_localize(local_tz)
+        end_of_day = pd.Timestamp(end_date).tz_localize(local_tz) + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+        now_local = pd.Timestamp.now(tz=local_tz)
+        end_dt = min(end_of_day, now_local)
+
+        df_raw = df_raw[(df_raw["timestamp"] >= start_dt) & (df_raw["timestamp"] <= end_dt)]
+
+        if df_raw.empty:
+            st.info("⚠️ No data in the selected date range.")
+            st.stop()
 
         # ---------------- Build control flags ----------------
         df_flags = pd.DataFrame(index=df_raw.index)
@@ -56,7 +69,7 @@ else:
         df_flags["counting"] = True
         df_flags["freeze_flag"] = False
 
-        # Reset from (mark exactly 1 row True at the first row >= reset_ts)
+        # Reset from
         if controls.get("apply_reset"):
             reset_ts = combine_dt(controls.get("reset_date"), controls.get("reset_time"))
             if reset_ts is not None:
@@ -65,7 +78,7 @@ else:
                     first_idx = df_raw.index[mask].min()
                     df_flags.loc[first_idx, "reset_flag"] = True
 
-        # Pause window (set counting=False within range)
+        # Pause window
         if controls.get("apply_pause"):
             start_ts = combine_dt(controls.get("pause_start_date"), controls.get("pause_start_time"))
             end_ts = combine_dt(controls.get("pause_end_date"), controls.get("pause_end_time"))
@@ -73,7 +86,7 @@ else:
                 pmask = (df_raw["timestamp"] >= start_ts) & (df_raw["timestamp"] <= end_ts)
                 df_flags.loc[pmask, "counting"] = False
 
-        # Freeze from (first True at boundary; process_data will carry-forward)
+        # Freeze from
         if controls.get("apply_freeze"):
             freeze_ts = combine_dt(controls.get("freeze_date"), controls.get("freeze_time"))
             if freeze_ts is not None:
@@ -95,7 +108,6 @@ else:
             reset_col="reset_flag",
             count_col="counting",
             freeze_col="freeze_flag",
-            # session_col="station_id",  # uncomment if you have per-device sessions
         )
 
         # 🕒 Display most recent update time
