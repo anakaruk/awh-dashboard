@@ -14,18 +14,12 @@ st.title("📊 AWH Station Monitoring Dashboard")
 ARIZONA_TZ = pytz.timezone("America/Phoenix")
 
 def _to_az(dt_series: pd.Series) -> pd.Series:
-    """Ensure pandas datetime series is tz-aware and convert to Arizona time."""
     if dt_series.dt.tz is None:
         return dt_series.dt.tz_localize("UTC").dt.tz_convert(ARIZONA_TZ)
     return dt_series.dt.tz_convert(ARIZONA_TZ)
 
 @st.cache_data(show_spinner=False, ttl=60)
 def compute_station_status(stations, lookback_min=10):
-    """
-    Return:
-      - status: dict[station] -> True (online) / False (offline)
-      - last_seen: dict[station] -> pd.Timestamp (Arizona tz) or None
-    """
     status = {}
     last_seen = {}
     threshold = datetime.now(ARIZONA_TZ) - timedelta(minutes=lookback_min)
@@ -38,8 +32,7 @@ def compute_station_status(stations, lookback_min=10):
                 last_seen[s] = None
                 continue
 
-            ts = pd.to_datetime(df["timestamp"], errors="coerce")
-            ts = ts.dropna()
+            ts = pd.to_datetime(df["timestamp"], errors="coerce").dropna()
             if ts.empty:
                 status[s] = False
                 last_seen[s] = None
@@ -57,20 +50,17 @@ def compute_station_status(stations, lookback_min=10):
 
 # 🔌 Load list of stations
 stations = get_station_list()
-
 if not stations:
     st.warning("⚠️ No stations with data available.")
     st.stop()
 
-# 🟢 Compute who is online (last 10 minutes)
+# 🟢 Who is online in last 10 minutes
 status, last_seen = compute_station_status(stations, lookback_min=10)
-
-# 🧭 Choose default station = first online; if none, keep first in list
 default_station = next((s for s in stations if status.get(s)), stations[0])
 
 # 🧱 Top status bar
 st.markdown("### 🔌 Station Status (last 10 minutes)")
-cols = st.columns(min(4, len(stations)))  # wrap every row by 4 columns
+cols = st.columns(min(4, len(stations)))
 for i, s in enumerate(stations):
     with cols[i % len(cols)]:
         indicator = "🟢 **Online**" if status.get(s) else "🔴 Offline"
@@ -90,36 +80,39 @@ for i, s in enumerate(stations):
 
 st.divider()
 
-# 🎛 Sidebar controls (station, intake area, selected fields)
-station, selected_fields, intake_area = render_controls(
-    station_list=stations,
-    default_station=default_station,
-    station_status=status,       # pass status to show inline in selector
-    last_seen_map=last_seen
-)
+# 🎛 Sidebar controls (backward compatible call)
+try:
+    station, selected_fields, intake_area = render_controls(
+        station_list=stations,
+        default_station=default_station,
+        station_status=status,
+        last_seen_map=last_seen,
+    )
+except TypeError:
+    # fallback for old ui_display.py that only accepts (station_list)
+    station, selected_fields, intake_area = render_controls(stations)
 
-# 📥 Load raw data for selected station
+# 📥 Load data
 df_raw = load_station_data(station)
-
 if df_raw.empty:
     st.warning(f"⚠️ No data found for station: {station}")
     st.stop()
 
-# 🧮 Process data (rename, compute metrics, etc.)
+# 🧮 Process
 df_processed = process_data(df_raw, intake_area=intake_area)
 
-# ⏱️ Convert timestamp to local timezone (Arizona)
+# ⏱️ Localize time to AZ
 if df_processed["timestamp"].dt.tz is None:
     df_processed["timestamp"] = df_processed["timestamp"].dt.tz_localize("UTC").dt.tz_convert(ARIZONA_TZ)
 else:
     df_processed["timestamp"] = df_processed["timestamp"].dt.tz_convert(ARIZONA_TZ)
 
-# 🕒 Display most recent update time + online badge for the chosen station
+# 🕒 Latest time + online badge
 latest_time = df_processed["timestamp"].max()
 badge = "🟢 **Online**" if status.get(station) else "🔴 Offline"
 st.markdown(
     f"**Last Updated (Local Time - Arizona):** {latest_time.strftime('%Y-%m-%d %H:%M:%S')} &nbsp;&nbsp; {badge}"
 )
 
-# 📊 Show dashboard
+# 📊 Render
 render_data_section(df_processed, station, selected_fields)
