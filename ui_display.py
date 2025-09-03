@@ -23,36 +23,49 @@ def render_controls(station_list):
     )
     intake_area = float(intake_area_options[intake_area_label])
 
+    # --- Date period ---
+    st.sidebar.subheader("📅 Date period")
+    today = pd.Timestamp.now().date()
+    picked = st.sidebar.date_input("Select date range", value=(today, today))
+    if isinstance(picked, (list, tuple)) and len(picked) == 2:
+        start_date, end_date = picked
+    else:
+        start_date = end_date = picked
+
+    # --- Calculation Window ---
     st.sidebar.markdown("### ⏱️ Calculation Window")
 
-    # --- Reset from ---
+    # Reset from …
     apply_reset = st.sidebar.checkbox("🔄 Reset accumulations from…", value=False)
-    reset_date = st.sidebar.date_input("Reset date", value=None, disabled=not apply_reset)
-    reset_time = st.sidebar.time_input("Reset time", value=None, disabled=not apply_reset)
+    reset_date = st.sidebar.date_input("Reset date", value=today, disabled=not apply_reset)
+    reset_time = st.sidebar.time_input("Reset time", value=pd.to_datetime("00:00").time(), disabled=not apply_reset)
 
-    # --- Pause window ---
+    # Pause window …
     apply_pause = st.sidebar.checkbox("⏸️ Pause counting between…", value=False)
-    pause_start_date = st.sidebar.date_input("Pause start date", value=None, disabled=not apply_pause)
-    pause_start_time = st.sidebar.time_input("Pause start time", value=None, disabled=not apply_pause)
-    pause_end_date = st.sidebar.date_input("Pause end date", value=None, disabled=not apply_pause)
-    pause_end_time = st.sidebar.time_input("Pause end time", value=None, disabled=not apply_pause)
+    pause_start_date = st.sidebar.date_input("Pause start date", value=today, disabled=not apply_pause)
+    pause_start_time = st.sidebar.time_input("Pause start time", value=pd.to_datetime("00:00").time(), disabled=not apply_pause)
+    pause_end_date = st.sidebar.date_input("Pause end date", value=today, disabled=not apply_pause)
+    pause_end_time = st.sidebar.time_input("Pause end time", value=pd.to_datetime("23:59").time(), disabled=not apply_pause)
 
-    # --- Freeze from ---
+    # Freeze from …
     apply_freeze = st.sidebar.checkbox("🛑 Freeze outputs from…", value=False)
-    freeze_date = st.sidebar.date_input("Freeze date", value=None, disabled=not apply_freeze)
-    freeze_time = st.sidebar.time_input("Freeze time", value=None, disabled=not apply_freeze)
+    freeze_date = st.sidebar.date_input("Freeze date", value=today, disabled=not apply_freeze)
+    freeze_time = st.sidebar.time_input("Freeze time", value=pd.to_datetime("00:00").time(), disabled=not apply_freeze)
 
     # Optional: adjust lag steps for efficiency
-    lag_steps = int(st.sidebar.number_input("Production lag steps", min_value=0, max_value=200, value=10, step=1))
+    lag_steps = int(
+        st.sidebar.number_input("Production lag steps", min_value=0, max_value=200, value=10, step=1)
+    )
 
+    # Field selection
     field_options = [
         ("❄️ Harvesting Efficiency (%)", "harvesting_efficiency"),
         ("💧 Water Production (L)", "water_production"),
         ("🔋 Energy Per Liter (kWh/L)", "energy_per_liter (kWh/L)"),
         ("🔋 Power Consumption (kWh)", "accumulated_energy (kWh)"),
-        ("🌫️ Abs. Intake humidity (g/m3)", "absolute_intake_air_humidity"),
-        ("🌫️ Abs. Outtake humidity (g/m3)", "absolute_outtake_air_humidity"),
-        ("🌫️ Adjust Abs. Outtake humidity (g/m3)", "calibrated_outtake_air_humidity"),
+        ("🌫️ Abs. Intake humidity (g/m³)", "absolute_intake_air_humidity"),
+        ("🌫️ Abs. Outtake humidity (g/m³)", "absolute_outtake_air_humidity"),
+        ("🌫️ Adjust Abs. Outtake humidity (g/m³)", "calibrated_outtake_air_humidity"),
         ("🌡️ Intake temperature (°C)", "intake_air_temperature (C)"),
         ("💨 Intake humidity (%)", "intake_air_humidity (%)"),
         ("↘ Intake velocity (m/s)", "intake_air_velocity (m/s)"),
@@ -87,7 +100,7 @@ def render_controls(station_list):
         "intake_area": intake_area,
     }
 
-    return selected_station_name, selected_fields, controls
+    return selected_station_name, selected_fields, controls, (start_date, end_date)
 
 
 def _plot_with_altair(plot_data: pd.DataFrame, field: str):
