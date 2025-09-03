@@ -22,9 +22,8 @@ def _to_local_tz(ts: pd.Series) -> pd.Series:
 
 def _safe_process(df_raw: pd.DataFrame, intake_area: float) -> pd.DataFrame:
     """
-    Call process_data normally. If it fails (e.g., mismatched assignment inside the
-    processing pipeline), fall back to a minimal pass-through so the UI still works.
-    This does NOT modify your data_play.py.
+    Call process_data normally. If it fails, fall back to a minimal pass-through
+    so the UI still works. This does NOT modify your data_play.py.
     """
     try:
         return process_data(df_raw, intake_area=intake_area)
@@ -38,7 +37,7 @@ def _safe_process(df_raw: pd.DataFrame, intake_area: float) -> pd.DataFrame:
             df = df.dropna(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
         else:
             # If no timestamp, create a dummy one so the app can render
-            df["timestamp"] = pd.to_datetime(pd.Timestamp.utcnow()).tz_localize("UTC")
+            df["timestamp"] = pd.Timestamp.utcnow().tz_localize("UTC")
 
         return df
 
