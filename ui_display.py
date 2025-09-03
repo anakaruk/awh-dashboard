@@ -9,7 +9,7 @@ def render_controls(station_list):
     # Station selector
     selected_station_name = st.sidebar.selectbox("Select Station", station_list)
 
-    # Intake area options (include AquaPars 0.12 m² as per your setup)
+    # Intake area options
     intake_area_options = {
         "AquaPars 1: 0.12 m²": 0.12,
         "DewStand 1: 0.04 m²": 0.04,
