@@ -4,9 +4,11 @@ import altair as alt
 
 def render_controls(station_list):
     st.sidebar.header("🔧 Controls")
-    # เลือกสถานีแบบเรียบง่าย (เข้ากันได้กับ dashboard เดิม)
+
+    # เลือกสถานี
     selected_station_name = st.sidebar.selectbox("📍 Select Station", station_list)
 
+    # ตัวเลือกพื้นที่รับลม (เพิ่ม AquaPars 0.12 m² กลับมา)
     intake_area_options = {
         "AquaPars 1: 0.12 m²": 0.12,
         "DewStand 1: 0.04 m²": 0.04,
@@ -15,7 +17,7 @@ def render_controls(station_list):
     intake_area_label = st.sidebar.selectbox("🧲 Intake Area (m²)", list(intake_area_options.keys()))
     intake_area = intake_area_options[intake_area_label]
 
-    st.sidebar.markdown("### Fields")
+    # เลือกฟิลด์ที่จะแสดง
     field_options = [
         ("❄️ Harvesting Efficiency (%)", "harvesting_efficiency"),
         ("💧 Water Production (L)", "water_production"),
@@ -49,15 +51,19 @@ def render_data_section(df, station_name, selected_fields):
         st.warning("No data found for this station.")
         return
 
-    available_fields = [c for c in selected_fields if c in df.columns and c != "timestamp"]
+    # ให้แน่ใจว่ามี Date/Time แยกคอลัมน์
     df_sorted = df.sort_values("timestamp").copy()
-    df_sorted["Date"] = df_sorted["timestamp"].dt.date
+    df_sorted["Date"] = df_sorted["timestamp"].dt.strftime("%Y-%m-%d")
     df_sorted["Time"] = df_sorted["timestamp"].dt.strftime("%H:%M:%S")
+
+    available_fields = [col for col in selected_fields if col in df.columns and col != "timestamp"]
 
     for field in available_fields:
         st.subheader(f"📊 {field} Overview")
+
         col1, col2 = st.columns([1, 2], gap="large")
 
+        # 📋 Table
         with col1:
             st.markdown("#### 📋 Table")
             st.dataframe(df_sorted[["Date", "Time", field]], use_container_width=True)
@@ -68,13 +74,17 @@ def render_data_section(df, station_name, selected_fields):
                 mime="text/csv",
             )
 
+        # 📈 Plot
         with col2:
             st.markdown("#### 📈 Plot")
+
+            # แปลงเป็นตัวเลขเพื่อกัน text พาแตก
             df_sorted[field] = pd.to_numeric(df_sorted[field], errors="coerce")
             plot_data = df_sorted[["timestamp", field]].dropna()
 
             excluded_points = 0
             if field == "harvesting_efficiency":
+                # กัน spike > 50% ออกจากกราฟ
                 excluded_points = (plot_data[field] > 50).sum()
                 plot_data = plot_data[plot_data[field] <= 50]
 
@@ -83,6 +93,8 @@ def render_data_section(df, station_name, selected_fields):
                 continue
 
             if field == "energy_per_liter (kWh/L)":
+                # เฉลี่ยรายชั่วโมงเป็นแท่ง
+                plot_data = plot_data.copy()
                 plot_data["Hour"] = plot_data["timestamp"].dt.floor("H")
                 hourly_plot = (
                     plot_data.groupby("Hour")[field]
@@ -93,7 +105,7 @@ def render_data_section(df, station_name, selected_fields):
                 chart = alt.Chart(hourly_plot).mark_bar().encode(
                     x=alt.X("timestamp:T", title="Hour", axis=alt.Axis(format="%H:%M")),
                     y=alt.Y(field, title="Energy per Liter (kWh/L)"),
-                    tooltip=["timestamp", field],
+                    tooltip=["timestamp:T", field],
                 ).properties(width="container", height=300)
                 st.altair_chart(chart, use_container_width=True)
             else:
@@ -103,10 +115,13 @@ def render_data_section(df, station_name, selected_fields):
                     scale=alt.Scale(domain=[0, 30]) if field == "harvesting_efficiency" else alt.Undefined,
                 )
                 chart = alt.Chart(plot_data).mark_circle(size=60).encode(
-                    x=alt.X("timestamp:T", title="Date & Time",
-                            axis=alt.Axis(format="%Y-%m-%d %H:%M", labelAngle=-45)),
+                    x=alt.X(
+                        "timestamp:T",
+                        title="Date & Time",
+                        axis=alt.Axis(format="%Y-%m-%d %H:%M", labelAngle=-45),
+                    ),
                     y=y_axis,
-                    tooltip=["timestamp", field],
+                    tooltip=["timestamp:T", field],
                 ).properties(width="container", height=300)
                 st.altair_chart(chart, use_container_width=True)
 
