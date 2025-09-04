@@ -1,5 +1,3 @@
-# dashboard.py
-import random
 import streamlit as st
 import pandas as pd
 import pytz
@@ -9,131 +7,101 @@ from firestore_loader import get_station_list, load_station_data
 from ui_display import render_controls, render_data_section
 from data_play import process_data
 
-# ---------- Page setup ----------
+# Page setup
 st.set_page_config(page_title="AWH Station Dashboard", layout="wide")
 st.title("📊 AWH Station Monitoring Dashboard")
 
 LOCAL_TZ = pytz.timezone("America/Phoenix")
 
 
-# ---------- Last-seen helpers ----------
-@st.cache_data(ttl=60)
-def _last_seen_for_station(station: str):
-    """
-    Return most-recent timestamp for a station, tz-aware (Arizona).
-    Tries a lightweight read (if supported), else falls back to full read.
-    """
-    try:
-        df_try = load_station_data(station, limit=1, order="desc")  # optional fast path
-        if isinstance(df_try, pd.DataFrame) and not df_try.empty and "timestamp" in df_try:
-            ts = pd.to_datetime(df_try["timestamp"], errors="coerce").max()
-            if pd.notna(ts):
-                if ts.tzinfo is None:
-                    ts = ts.tz_localize("UTC").tz_convert(LOCAL_TZ)
-                else:
-                    ts = ts.tz_convert(LOCAL_TZ)
-                return ts
-    except TypeError:
-        pass
-    except Exception:
-        pass
+def _resample_df(df: pd.DataFrame, rule: str | None) -> pd.DataFrame:
+    """Downsample raw sensor data safely (mean for most, last for cumulative/status)."""
+    if not rule:
+        return df
+    df = df.copy().sort_values("timestamp")
+    df = df.set_index("timestamp")
 
-    df = load_station_data(station)
-    if isinstance(df, pd.DataFrame) and not df.empty and "timestamp" in df:
-        ts = pd.to_datetime(df["timestamp"], errors="coerce").max()
-        if pd.notna(ts):
-            if ts.tzinfo is None:
-                ts = ts.tz_localize("UTC").tz_convert(LOCAL_TZ)
-            else:
-                ts = ts.tz_convert(LOCAL_TZ)
-            return ts
-    return None
+    numeric_cols = df.select_dtypes(include="number").columns.tolist()
+    prefer_last = {"weight", "water_production_raw", "pump_status", "state", "status", "current_session"}
+
+    agg_map = {}
+    for c in numeric_cols:
+        agg_map[c] = "last" if (c in prefer_last or c.lower() in prefer_last) else "mean"
+
+    out = df.resample(rule, label="right", closed="right").agg(agg_map)
+    out = out.reset_index()
+    return out
 
 
-def _render_station_status(stations: list[str]):
-    """Render an online/offline grid for all stations based on last 5 minutes."""
-    st.subheader("Station Status")
+@st.cache_data(ttl=180, show_spinner=False)
+def get_processed(
+    station: str,
+    start_date: pd.Timestamp,
+    end_date: pd.Timestamp,
+    intake_area: float,
+    lag_steps: int,
+    resample_rule: str | None,
+) -> pd.DataFrame:
+    """Load → tz-convert → filter → resample → process; cached by parameters."""
+    raw = load_station_data(station)
+    if raw is None or raw.empty:
+        return pd.DataFrame()
+
+    df = raw.copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    df = df.dropna(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
+
+    if df["timestamp"].dt.tz is None:
+        df["timestamp"] = df["timestamp"].dt.tz_localize("UTC").dt.tz_convert(LOCAL_TZ)
+    else:
+        df["timestamp"] = df["timestamp"].dt.tz_convert(LOCAL_TZ)
+
+    # Date window (inclusive day range)
+    start_dt = pd.Timestamp(start_date).tz_localize(LOCAL_TZ)
+    end_of_day = pd.Timestamp(end_date).tz_localize(LOCAL_TZ) + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
     now_local = pd.Timestamp.now(tz=LOCAL_TZ)
+    end_dt = min(end_of_day, now_local)
 
-    last_seen_map = {s: _last_seen_for_station(s) for s in stations}
-    online_map = {s: bool(ts and (now_local - ts <= timedelta(minutes=5)))
-                  for s, ts in last_seen_map.items()}
+    df = df[(df["timestamp"] >= start_dt) & (df["timestamp"] <= end_dt)]
+    if df.empty:
+        return df
 
-    per_row = 4
-    for i, s in enumerate(stations):
-        if i % per_row == 0:
-            cols = st.columns(per_row)
-        with cols[i % per_row]:
-            ts = last_seen_map[s]
-            dot = "🟢" if online_map[s] else "🔴"
-            st.markdown(f"**{s}** {dot}")
-            st.caption(f"Last seen: {ts.strftime('%Y-%m-%d %H:%M:%S')} AZ" if ts else "Last seen: —")
+    # Downsample
+    df = _resample_df(df, resample_rule)
 
-    st.divider()
-    return online_map, last_seen_map
+    # Process metrics
+    return process_data(df, intake_area=float(intake_area), lag_steps=int(lag_steps))
 
 
-# ---------- Load station list & status header ----------
+# ---------------------- Page flow ----------------------
 stations = get_station_list()
 if not stations:
     st.warning("No stations with data available.")
     st.stop()
 
-_ = _render_station_status(stations)
-
-# ---------- Sidebar controls ----------
-# (render_controls now returns None for station/intake_area until the user picks them)
 station, selected_fields, intake_area, (start_date, end_date), controls = render_controls(stations)
 
-# Wait for required selections
-if station is None or intake_area is None:
-    st.info("👈 Please select a **station** and an **air intake area** in the sidebar to get started.")
+# guard placeholders
+if not station or intake_area is None:
+    st.info("👋 Please select a **station** and **intake area** in the sidebar to begin.")
     st.stop()
 
-# ---------- Load data for selected station ----------
-df_raw = load_station_data(station)
-if df_raw.empty:
-    st.warning(f"No data found for station: {station}")
-    st.stop()
-
-# ---------- Ensure tz-aware timestamps (Arizona) ----------
-df_raw = df_raw.copy()
-df_raw["timestamp"] = pd.to_datetime(df_raw["timestamp"], errors="coerce")
-df_raw = df_raw.dropna(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
-if df_raw["timestamp"].dt.tz is None:
-    df_raw["timestamp"] = df_raw["timestamp"].dt.tz_localize("UTC").dt.tz_convert(LOCAL_TZ)
-else:
-    df_raw["timestamp"] = df_raw["timestamp"].dt.tz_convert(LOCAL_TZ)
-
-# ---------- Date filter: start-of-day → now ----------
+# normalize dates
 if end_date < start_date:
     start_date, end_date = end_date, start_date
 
-start_dt = pd.Timestamp(start_date).tz_localize(LOCAL_TZ)
-end_of_day = pd.Timestamp(end_date).tz_localize(LOCAL_TZ) + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
-now_local = pd.Timestamp.now(tz=LOCAL_TZ)
-end_dt = min(end_of_day, now_local)
-
-df_raw = df_raw[(df_raw["timestamp"] >= start_dt) & (df_raw["timestamp"] <= end_dt)]
-if df_raw.empty:
-    jokes = [
-        "No drops yet — looks like the station took a coffee break ☕. Try a different date!",
-        "Quieter than a cactus at noon 🌵😴. Pick another day or station on the left.",
-        "We checked under every cloud… still dry! ☁️➡️💧 Try another date range.",
-        "No data here, but the vibes are immaculate ✨. Adjust the dates and we’ll pour the graphs!",
-    ]
-    st.markdown("### 👋 Welcome!")
-    st.success(random.choice(jokes))
-    st.caption("Tip: set **Date period** to today or pick a different station in the sidebar.")
-    st.balloons()
-    st.stop()
-
-# ---------- Process & display ----------
-df_processed = process_data(
-    df_raw,
-    intake_area=float(intake_area),
-    lag_steps=int(controls.get("lag_steps", 10)),
+df_processed = get_processed(
+    station=station,
+    start_date=start_date,
+    end_date=end_date,
+    intake_area=intake_area,
+    lag_steps=controls.get("lag_steps", 10),
+    resample_rule=controls.get("resample_rule"),
 )
+
+if df_processed.empty:
+    st.info("No data in the selected date range.")
+    st.stop()
 
 latest_time = df_processed["timestamp"].max()
 st.markdown(f"**Last Updated (Local Time - Arizona):** {latest_time.strftime('%Y-%m-%d %H:%M:%S')}")
