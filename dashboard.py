@@ -1,3 +1,4 @@
+# dashboard.py
 import streamlit as st
 import pandas as pd
 import pytz
@@ -18,8 +19,8 @@ stations = get_station_list()
 if not stations:
     st.warning("⚠️ No stations with data available.")
 else:
-    # 🎛 Sidebar controls
-    station, selected_fields, intake_area, (start_date, end_date), controls = render_controls(stations)
+    # 🎛 Sidebar controls (UI returns: station, selected_fields, intake_area, (start_date, end_date))
+    station, selected_fields, intake_area, (start_date, end_date) = render_controls(stations)
 
     # 📥 Load raw data
     df_raw = load_station_data(station)
@@ -55,11 +56,11 @@ else:
             st.info("⚠️ No data in the selected date range.")
             st.stop()
 
-        # 🧮 Process data (no reset/pause/freeze anymore)
+        # 🧮 Process data (clean version, no reset/pause/freeze)
         df_processed = process_data(
             df_raw,
             intake_area=intake_area,
-            lag_steps=controls["lag_steps"],
+            lag_steps=10,  # default lag steps
         )
 
         # 🕒 Display most recent update time
