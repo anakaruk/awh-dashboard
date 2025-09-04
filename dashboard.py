@@ -30,8 +30,8 @@ stations = get_station_list()
 if not stations:
     st.warning("⚠️ No stations with data available.")
 else:
-    # 🎛 Sidebar controls (UI now also returns date range)
-    station, selected_fields, controls, (start_date, end_date) = render_controls(stations)
+    # 🎛 Sidebar controls (unpack ให้ตรงกับ ui_display)
+    station, selected_fields, intake_area, (start_date, end_date), controls = render_controls(stations)
 
     # 📥 Load raw data
     df_raw = load_station_data(station)
@@ -103,16 +103,19 @@ else:
         # 🧮 Process data with controls
         df_processed = process_data(
             df_raw,
-            intake_area=controls["intake_area"],
+            intake_area=intake_area,
             lag_steps=controls["lag_steps"],
             reset_col="reset_flag",
             count_col="counting",
             freeze_col="freeze_flag",
         )
 
-        # 🕒 Display most recent update time
-        latest_time = df_processed["timestamp"].max()
-        st.markdown(f"**Last Updated (Local Time - Arizona):** {latest_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        # 🕒 Display most recent update time (safe check)
+        if not df_processed.empty:
+            latest_time = df_processed["timestamp"].max()
+            st.markdown(
+                f"**Last Updated (Local Time - Arizona):** {latest_time.strftime('%Y-%m-%d %H:%M:%S')}"
+            )
 
         # 📊 Show dashboard
         render_data_section(df_processed, station, selected_fields)
