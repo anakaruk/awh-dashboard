@@ -72,7 +72,7 @@ def render_controls(
 
     # --- Field selection ---
     field_options = [
-        ("❄️ สวัสดีชาวโลก (%)", "harvesting_efficiency"),
+        ("หกดหกด สวัสดีชาวโลก (%)", "harvesting_efficiency"),
         ("💧 Water Production (L)", "water_production"),
         ("🔋 Energy Per Liter (kWh/L)", "energy_per_liter (kWh/L)"),
         ("🔋 Power Consumption (kWh)", "accumulated_energy (kWh)"),
