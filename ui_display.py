@@ -10,17 +10,13 @@ except Exception:
 
 
 # ----------- Sidebar Controls -----------
-def render_controls(
-    station_list,
-    default_station=None,
-    station_status=None,
-    last_seen_map=None
-):
+def render_controls(station_list):
     """
-    Render sidebar controls.
-
-    Returns:
-        (selected_station_name, selected_fields, intake_area, (start_date, end_date), controls)
+    Render sidebar controls with only:
+      - Station selector
+      - Intake area selector
+      - Date range selector
+      - Field selection
     """
     st.sidebar.header("🔧 Controls")
 
@@ -37,48 +33,22 @@ def render_controls(
     intake_area = float(intake_area_options[intake_area_label])
 
     # --- Date period ---
-    st.sidebar.markdown("### 📅 Date period")
+    st.sidebar.subheader("📅 Date period")
     today = pd.Timestamp.now().date()
-    date_range = st.sidebar.date_input("Select date range", value=(today, today))
-    if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
-        start_date, end_date = date_range
+    picked = st.sidebar.date_input("Select date range", value=(today, today))
+    if isinstance(picked, (list, tuple)) and len(picked) == 2:
+        start_date, end_date = picked
     else:
-        start_date = end_date = date_range
-
-    # --- Calculation Window ---
-    st.sidebar.markdown("### ⏱️ Calculation Window")
-
-    # Reset from
-    apply_reset = st.sidebar.checkbox("🔄 Reset accumulations from…", value=False)
-    reset_date = st.sidebar.date_input("Reset date", value=today, disabled=not apply_reset)
-    reset_time = st.sidebar.time_input("Reset time", value=pd.to_datetime("00:00").time(), disabled=not apply_reset)
-
-    # Pause window
-    apply_pause = st.sidebar.checkbox("⏸️ Pause counting between…", value=False)
-    pause_start_date = st.sidebar.date_input("Pause start date", value=today, disabled=not apply_pause)
-    pause_start_time = st.sidebar.time_input("Pause start time", value=pd.to_datetime("00:00").time(), disabled=not apply_pause)
-    pause_end_date = st.sidebar.date_input("Pause end date", value=today, disabled=not apply_pause)
-    pause_end_time = st.sidebar.time_input("Pause end time", value=pd.to_datetime("23:59").time(), disabled=not apply_pause)
-
-    # Freeze from
-    apply_freeze = st.sidebar.checkbox("🛑 Freeze outputs from…", value=False)
-    freeze_date = st.sidebar.date_input("Freeze date", value=today, disabled=not apply_freeze)
-    freeze_time = st.sidebar.time_input("Freeze time", value=pd.to_datetime("00:00").time(), disabled=not apply_freeze)
-
-    # Lag steps
-    lag_steps = int(
-        st.sidebar.number_input("Production lag steps", min_value=0, max_value=200, value=10, step=1)
-    )
+        start_date = end_date = picked
 
     # --- Field selection ---
     field_options = [
-        ("หกดหกด สวัสดีชาวโลก (%)", "harvesting_efficiency"),
+        ("❄️ Harvesting Efficiency (%)", "harvesting_efficiency"),
         ("💧 Water Production (L)", "water_production"),
         ("🔋 Energy Per Liter (kWh/L)", "energy_per_liter (kWh/L)"),
         ("🔋 Power Consumption (kWh)", "accumulated_energy (kWh)"),
         ("🌫️ Abs. Intake humidity (g/m³)", "absolute_intake_air_humidity"),
         ("🌫️ Abs. Outtake humidity (g/m³)", "absolute_outtake_air_humidity"),
-        ("🌫️ Adjust Abs. Outtake humidity (g/m³)", "calibrated_outtake_air_humidity"),
         ("🌡️ Intake temperature (°C)", "intake_air_temperature (C)"),
         ("💨 Intake humidity (%)", "intake_air_humidity (%)"),
         ("↘ Intake velocity (m/s)", "intake_air_velocity (m/s)"),
@@ -97,23 +67,7 @@ def render_controls(
     if not _ALT_OK:
         st.sidebar.warning("Altair not installed — using fallback charts.")
 
-    controls = {
-        "apply_reset": apply_reset,
-        "reset_date": reset_date,
-        "reset_time": reset_time,
-        "apply_pause": apply_pause,
-        "pause_start_date": pause_start_date,
-        "pause_start_time": pause_start_time,
-        "pause_end_date": pause_end_date,
-        "pause_end_time": pause_end_time,
-        "apply_freeze": apply_freeze,
-        "freeze_date": freeze_date,
-        "freeze_time": freeze_time,
-        "lag_steps": lag_steps,
-        "intake_area": intake_area,
-    }
-
-    return selected_station_name, selected_fields, intake_area, (start_date, end_date), controls
+    return selected_station_name, selected_fields, intake_area, (start_date, end_date)
 
 
 # ----------- Data Section -----------
@@ -152,57 +106,16 @@ def render_data_section(df, station_name, selected_fields):
             df_sorted[field] = pd.to_numeric(df_sorted[field], errors="coerce")
             plot_data = df_sorted[["timestamp", field]].dropna()
 
-            excluded_points = 0
-            if field == "harvesting_efficiency":
-                excluded_points = (plot_data[field] > 50).sum()
-                plot_data = plot_data[plot_data[field] <= 50]
-
             if plot_data.empty:
                 st.warning(f"⚠️ No data available to plot for {field}.")
                 continue
 
             if _ALT_OK:
-                if field == "energy_per_liter (kWh/L)":
-                    plot_data["Hour"] = plot_data["timestamp"].dt.floor("H")
-                    hourly_plot = (
-                        plot_data.groupby("Hour")[field]
-                        .mean()
-                        .reset_index()
-                        .rename(columns={"Hour": "timestamp"})
-                    )
-                    chart = (
-                        alt.Chart(hourly_plot)
-                        .mark_bar()
-                        .encode(
-                            x=alt.X("timestamp:T", title="Hour", axis=alt.Axis(format="%H:%M")),
-                            y=alt.Y(field, title="Energy per Liter (kWh/L)"),
-                            tooltip=["timestamp", field],
-                        )
-                        .properties(width="container", height=300)
-                    )
-                else:
-                    y_axis = alt.Y(
-                        field,
-                        title=field,
-                        scale=alt.Scale(domain=[0, 50]) if field == "harvesting_efficiency" else None,
-                    )
-                    chart = (
-                        alt.Chart(plot_data)
-                        .mark_circle(size=60)
-                        .encode(
-                            x=alt.X(
-                                "timestamp:T",
-                                title="Date & Time",
-                                axis=alt.Axis(format="%Y-%m-%d %H:%M", labelAngle=-45),
-                            ),
-                            y=y_axis,
-                            tooltip=["timestamp", field],
-                        )
-                        .properties(width="container", height=300)
-                    )
+                chart = alt.Chart(plot_data).mark_circle(size=60).encode(
+                    x=alt.X("timestamp:T", title="Date & Time", axis=alt.Axis(format="%Y-%m-%d %H:%M", labelAngle=-45)),
+                    y=alt.Y(field, title=field),
+                    tooltip=["timestamp", field],
+                ).properties(width="container", height=300)
                 st.altair_chart(chart, use_container_width=True)
             else:
                 st.line_chart(plot_data.set_index("timestamp")[[field]], use_container_width=True)
-
-            if excluded_points > 0:
-                st.caption(f"⚠️ {excluded_points} point(s) above 50% were excluded from the plot.")
