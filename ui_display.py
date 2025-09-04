@@ -12,11 +12,13 @@ except Exception:
 # ----------- Sidebar Controls -----------
 def render_controls(station_list):
     """
-    Render sidebar controls with only:
+    Render sidebar controls (simplified for end users):
       - Station selector
       - Intake area selector
       - Date range selector
       - Field selection
+    Returns:
+      (selected_station, selected_fields, intake_area, (start_date, end_date), controls)
     """
     st.sidebar.header("🔧 Controls")
 
@@ -67,7 +69,15 @@ def render_controls(station_list):
     if not _ALT_OK:
         st.sidebar.warning("Altair not installed — using fallback charts.")
 
-    return selected_station_name, selected_fields, intake_area, (start_date, end_date)
+    # ---- Minimal controls dict (defaults for process_data) ----
+    controls = {
+        "lag_steps": 10,
+        "apply_reset": False,
+        "apply_pause": False,
+        "apply_freeze": False,
+    }
+
+    return selected_station_name, selected_fields, intake_area, (start_date, end_date), controls
 
 
 # ----------- Data Section -----------
@@ -111,11 +121,37 @@ def render_data_section(df, station_name, selected_fields):
                 continue
 
             if _ALT_OK:
-                chart = alt.Chart(plot_data).mark_circle(size=60).encode(
-                    x=alt.X("timestamp:T", title="Date & Time", axis=alt.Axis(format="%Y-%m-%d %H:%M", labelAngle=-45)),
-                    y=alt.Y(field, title=field),
-                    tooltip=["timestamp", field],
-                ).properties(width="container", height=300)
+                if field == "energy_per_liter (kWh/L)":
+                    plot_data["Hour"] = plot_data["timestamp"].dt.floor("H")
+                    hourly_plot = (
+                        plot_data.groupby("Hour")[field]
+                        .mean()
+                        .reset_index()
+                        .rename(columns={"Hour": "timestamp"})
+                    )
+                    chart = (
+                        alt.Chart(hourly_plot)
+                        .mark_bar()
+                        .encode(
+                            x=alt.X("timestamp:T", title="Hour", axis=alt.Axis(format="%H:%M")),
+                            y=alt.Y(field, title="Energy per Liter (kWh/L)"),
+                            tooltip=["timestamp", field],
+                        )
+                        .properties(width="container", height=300)
+                    )
+                else:
+                    chart = (
+                        alt.Chart(plot_data)
+                        .mark_circle(size=60)
+                        .encode(
+                            x=alt.X("timestamp:T",
+                                    title="Date & Time",
+                                    axis=alt.Axis(format="%Y-%m-%d %H:%M", labelAngle=-45)),
+                            y=alt.Y(field, title=field),
+                            tooltip=["timestamp", field],
+                        )
+                        .properties(width="container", height=300)
+                    )
                 st.altair_chart(chart, use_container_width=True)
             else:
                 st.line_chart(plot_data.set_index("timestamp")[[field]], use_container_width=True)
