@@ -1,7 +1,7 @@
-# ui_display.py
 import streamlit as st
 import pandas as pd
 
+# Altair is optional
 try:
     import altair as alt
     _ALT_OK = True
@@ -10,15 +10,30 @@ except Exception:
 
 
 def render_controls(station_list):
+    """
+    Sidebar UI:
+      - Station selector (with placeholder)
+      - Intake area selector (with placeholder)
+      - Sampling interval (downsampling)
+      - Start/End date pickers
+      - Field selection
+
+    Returns:
+      selected_station (str | None),
+      selected_fields (list[str]),
+      intake_area (float | None),
+      (start_date, end_date) (date, date),
+      controls (dict) -> contains "lag_steps" and "resample_rule"
+    """
     st.sidebar.header("🔧 Controls")
 
-    # Station
+    # --- Station ---
     station_placeholder = "— Please select station —"
     station_options = [station_placeholder] + list(station_list)
     station_choice = st.sidebar.selectbox("📍 Select Station", station_options, index=0)
     selected_station = None if station_choice == station_placeholder else station_choice
 
-    # Intake area
+    # --- Intake area ---
     intake_area_map = {
         "AquaPars 1: 0.12 m²": 0.12,
         "DewStand 1: 0.04 m²": 0.04,
@@ -29,10 +44,10 @@ def render_controls(station_list):
     intake_choice = st.sidebar.selectbox("🧲 Intake Area (m²)", intake_labels, index=0)
     intake_area = None if intake_choice == intake_placeholder else float(intake_area_map[intake_choice])
 
-    # NEW: Sampling interval (placed after intake area)
+    # --- Sampling interval ---
     sampling_label = st.sidebar.selectbox(
         "⏱️ Sampling interval",
-        ["5 min", "1 min", "30 min", "Raw (no downsampling)"],  # default first for speed
+        ["5 min", "1 min", "30 min", "Raw (no downsampling)"],
         index=0,
         help="Downsample sensor data to speed up plots/tables."
     )
@@ -44,7 +59,7 @@ def render_controls(station_list):
     }
     resample_rule = sampling_map[sampling_label]
 
-    # Dates (separate pickers)
+    # --- Date period (separate pickers) ---
     st.sidebar.subheader("📅 Date period")
     today = pd.Timestamp.now().date()
     start_date = st.sidebar.date_input("Start date", today)
@@ -52,7 +67,7 @@ def render_controls(station_list):
     if end_date < start_date:
         st.sidebar.warning("End date is before start date. The app will swap them for you.")
 
-    # Fields
+    # --- Field selection ---
     field_options = [
         ("❄️ Harvesting Efficiency (%)", "harvesting_efficiency"),
         ("💧 Water Production (L)", "water_production"),
@@ -78,8 +93,8 @@ def render_controls(station_list):
         st.sidebar.info("Altair not installed — using fallback charts.")
 
     controls = {
-        "lag_steps": 10,
-        "resample_rule": resample_rule,   # <— NEW
+        "lag_steps": 10,                # default used in process_data
+        "resample_rule": resample_rule  # NEW
     }
     return selected_station, selected_fields, intake_area, (start_date, end_date), controls
 
@@ -87,7 +102,7 @@ def render_controls(station_list):
 def render_data_section(df, station_name, selected_fields):
     st.title(f"📊 AWH Dashboard – {station_name}")
     if df.empty:
-        st.warning("No data found for this station.")
+        st.warning("No data found for this station and date range.")
         return
 
     available_fields = [c for c in selected_fields if c in df.columns and c != "timestamp"]
@@ -113,7 +128,6 @@ def render_data_section(df, station_name, selected_fields):
             st.markdown("#### 📈 Plot")
             df_sorted[field] = pd.to_numeric(df_sorted[field], errors="coerce")
             plot_data = df_sorted[["timestamp", field]].dropna()
-
             if plot_data.empty:
                 st.info(f"⚠️ No data available to plot for **{field}**.")
                 continue
@@ -143,8 +157,11 @@ def render_data_section(df, station_name, selected_fields):
                         alt.Chart(plot_data)
                         .mark_circle(size=56)
                         .encode(
-                            x=alt.X("timestamp:T", title="Date & Time",
-                                    axis=alt.Axis(format="%Y-%m-%d %H:%M", labelAngle=-45)),
+                            x=alt.X(
+                                "timestamp:T",
+                                title="Date & Time",
+                                axis=alt.Axis(format="%Y-%m-%d %H:%M", labelAngle=-45),
+                            ),
                             y=alt.Y(field, title=field),
                             tooltip=["timestamp:T", field],
                         )
