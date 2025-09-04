@@ -2,7 +2,6 @@
 import streamlit as st
 import pandas as pd
 
-# Optional Altair import (fallback to Streamlit charts if unavailable)
 try:
     import altair as alt
     _ALT_OK = True
@@ -10,27 +9,16 @@ except Exception:
     _ALT_OK = False
 
 
-# ---------------- Sidebar controls ----------------
 def render_controls(station_list):
-    """
-    Render the sidebar controls.
-
-    Returns:
-        selected_station (str|None)
-        selected_fields (list[str])
-        intake_area (float|None)
-        (start_date, end_date) (tuple[date, date])
-        controls (dict)  -> currently {"lag_steps": 10}
-    """
     st.sidebar.header("🔧 Controls")
 
-    # --- Station select with placeholder ---
+    # Station
     station_placeholder = "— Please select station —"
     station_options = [station_placeholder] + list(station_list)
     station_choice = st.sidebar.selectbox("📍 Select Station", station_options, index=0)
     selected_station = None if station_choice == station_placeholder else station_choice
 
-    # --- Intake area with placeholder ---
+    # Intake area
     intake_area_map = {
         "AquaPars 1: 0.12 m²": 0.12,
         "DewStand 1: 0.04 m²": 0.04,
@@ -41,17 +29,30 @@ def render_controls(station_list):
     intake_choice = st.sidebar.selectbox("🧲 Intake Area (m²)", intake_labels, index=0)
     intake_area = None if intake_choice == intake_placeholder else float(intake_area_map[intake_choice])
 
-    # --- Date period (separate pickers) ---
+    # NEW: Sampling interval (placed after intake area)
+    sampling_label = st.sidebar.selectbox(
+        "⏱️ Sampling interval",
+        ["5 min", "1 min", "30 min", "Raw (no downsampling)"],  # default first for speed
+        index=0,
+        help="Downsample sensor data to speed up plots/tables."
+    )
+    sampling_map = {
+        "1 min": "1T",
+        "5 min": "5T",
+        "30 min": "30T",
+        "Raw (no downsampling)": None,
+    }
+    resample_rule = sampling_map[sampling_label]
+
+    # Dates (separate pickers)
     st.sidebar.subheader("📅 Date period")
     today = pd.Timestamp.now().date()
     start_date = st.sidebar.date_input("Start date", today)
     end_date = st.sidebar.date_input("End date", today)
-
-    # Soft guard in the sidebar so users notice mistakes early
     if end_date < start_date:
         st.sidebar.warning("End date is before start date. The app will swap them for you.")
 
-    # --- Fields to display ---
+    # Fields
     field_options = [
         ("❄️ Harvesting Efficiency (%)", "harvesting_efficiency"),
         ("💧 Water Production (L)", "water_production"),
@@ -68,7 +69,6 @@ def render_controls(station_list):
         ("🔌 Current (A)", "current"),
         ("⚡ Power (W)", "power"),
     ]
-
     selected_fields = ["timestamp"]
     for label, col in field_options:
         if st.sidebar.checkbox(label, value=(col == "harvesting_efficiency")):
@@ -77,36 +77,31 @@ def render_controls(station_list):
     if not _ALT_OK:
         st.sidebar.info("Altair not installed — using fallback charts.")
 
-    # Minimal controls for processing (keep API stable)
-    controls = {"lag_steps": 10}
-
+    controls = {
+        "lag_steps": 10,
+        "resample_rule": resample_rule,   # <— NEW
+    }
     return selected_station, selected_fields, intake_area, (start_date, end_date), controls
 
 
-# ---------------- Main data section ----------------
 def render_data_section(df, station_name, selected_fields):
     st.title(f"📊 AWH Dashboard – {station_name}")
-
     if df.empty:
         st.warning("No data found for this station.")
         return
 
-    # Only keep fields that exist (and skip timestamp for the table headers)
     available_fields = [c for c in selected_fields if c in df.columns and c != "timestamp"]
-
     df_sorted = df.sort_values("timestamp").copy()
     df_sorted["Date"] = df_sorted["timestamp"].dt.date
     df_sorted["Time"] = df_sorted["timestamp"].dt.strftime("%H:%M:%S")
 
     for field in available_fields:
         st.subheader(f"📊 {field} Overview")
-
         col1, col2 = st.columns([1, 2], gap="large")
 
         with col1:
             st.markdown("#### 📋 Table")
             st.dataframe(df_sorted[["Date", "Time", field]], use_container_width=True)
-
             st.download_button(
                 label=f"⬇️ Download {field} CSV",
                 data=df_sorted[["Date", "Time", field]].to_csv(index=False),
@@ -116,8 +111,6 @@ def render_data_section(df, station_name, selected_fields):
 
         with col2:
             st.markdown("#### 📈 Plot")
-
-            # Ensure numeric for plotting
             df_sorted[field] = pd.to_numeric(df_sorted[field], errors="coerce")
             plot_data = df_sorted[["timestamp", field]].dropna()
 
@@ -127,7 +120,6 @@ def render_data_section(df, station_name, selected_fields):
 
             if _ALT_OK:
                 if field == "energy_per_liter (kWh/L)":
-                    # Hourly average as columns
                     plot_data = plot_data.copy()
                     plot_data["Hour"] = plot_data["timestamp"].dt.floor("H")
                     hourly_plot = (
@@ -151,11 +143,8 @@ def render_data_section(df, station_name, selected_fields):
                         alt.Chart(plot_data)
                         .mark_circle(size=56)
                         .encode(
-                            x=alt.X(
-                                "timestamp:T",
-                                title="Date & Time",
-                                axis=alt.Axis(format="%Y-%m-%d %H:%M", labelAngle=-45),
-                            ),
+                            x=alt.X("timestamp:T", title="Date & Time",
+                                    axis=alt.Axis(format="%Y-%m-%d %H:%M", labelAngle=-45)),
                             y=alt.Y(field, title=field),
                             tooltip=["timestamp:T", field],
                         )
