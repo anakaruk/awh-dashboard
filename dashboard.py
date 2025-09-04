@@ -53,7 +53,7 @@ def _last_seen_for_station(station: str):
 
 def _render_station_status(stations: list[str]):
     """Render an online/offline grid for all stations based on last 5 minutes."""
-    st.subheader("Station Status (last 5 minutes)")
+    st.subheader("Station Status")
     now_local = pd.Timestamp.now(tz=LOCAL_TZ)
 
     # Build maps
