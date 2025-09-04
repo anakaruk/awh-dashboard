@@ -18,7 +18,7 @@ def render_controls(station_list):
       - Date range selector
       - Field selection
     Returns:
-      (selected_station, selected_fields, intake_area, (start_date, end_date), controls)
+      (selected_station, selected_fields, intake_area, (start_date, end_date))
     """
     st.sidebar.header("🔧 Controls")
 
@@ -69,15 +69,7 @@ def render_controls(station_list):
     if not _ALT_OK:
         st.sidebar.warning("Altair not installed — using fallback charts.")
 
-    # ---- Minimal controls dict (defaults for process_data) ----
-    controls = {
-        "lag_steps": 10,
-        "apply_reset": False,
-        "apply_pause": False,
-        "apply_freeze": False,
-    }
-
-    return selected_station_name, selected_fields, intake_area, (start_date, end_date), controls
+    return selected_station_name, selected_fields, intake_area, (start_date, end_date)
 
 
 # ----------- Data Section -----------
