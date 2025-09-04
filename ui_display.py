@@ -9,13 +9,6 @@ except Exception:
     _ALT_OK = False
 
 
-# ----------- Helpers -----------
-def _status_chip(name: str, is_online: bool, last_seen_text: str) -> str:
-    """Return station label with status dot."""
-    dot = "🟢" if is_online else "🔴"
-    return f"{name} {dot}"
-
-
 # ----------- Sidebar Controls -----------
 def render_controls(
     station_list,
@@ -26,43 +19,13 @@ def render_controls(
     """
     Render sidebar controls.
 
-    Args:
-        station_list (list[str]): available stations
-        default_station (str): pre-selected station
-        station_status (dict): {station: bool} online status
-        last_seen_map (dict): {station: datetime} last seen time
-
     Returns:
         (selected_station_name, selected_fields, intake_area, (start_date, end_date), controls)
     """
-    station_status = station_status or {}
-    last_seen_map = last_seen_map or {}
-
     st.sidebar.header("🔧 Controls")
 
-    # --- Station select with status dots ---
-    labels = []
-    for s in station_list:
-        last_txt = (
-            last_seen_map.get(s).strftime("%Y-%m-%d %H:%M:%S") + " AZ"
-            if last_seen_map.get(s) is not None
-            else "—"
-        )
-        lbl = _status_chip(s, station_status.get(s, False), last_txt)
-        labels.append(lbl)
-
-    if default_station in station_list:
-        default_index = station_list.index(default_station)
-    else:
-        default_index = 0
-
-    selected_label = st.sidebar.selectbox(
-        "📍 Select Station",
-        options=labels,
-        index=default_index,
-        help="🟢 = station has data in the last 10 minutes"
-    )
-    selected_station_name = station_list[labels.index(selected_label)]
+    # --- Station select ---
+    selected_station_name = st.sidebar.selectbox("📍 Select Station", station_list)
 
     # --- Intake area ---
     intake_area_options = {
@@ -74,13 +37,13 @@ def render_controls(
     intake_area = float(intake_area_options[intake_area_label])
 
     # --- Date period ---
-    st.sidebar.subheader("📅 Date period")
+    st.sidebar.markdown("### 📅 Date period")
     today = pd.Timestamp.now().date()
-    picked = st.sidebar.date_input("Select date range", value=(today, today))
-    if isinstance(picked, (list, tuple)) and len(picked) == 2:
-        start_date, end_date = picked
+    date_range = st.sidebar.date_input("Select date range", value=(today, today))
+    if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
+        start_date, end_date = date_range
     else:
-        start_date = end_date = picked
+        start_date = end_date = date_range
 
     # --- Calculation Window ---
     st.sidebar.markdown("### ⏱️ Calculation Window")
@@ -221,7 +184,7 @@ def render_data_section(df, station_name, selected_fields):
                     y_axis = alt.Y(
                         field,
                         title=field,
-                        scale=alt.Scale(domain=[0, 50]) if field == "harvesting_efficiency" else alt.Undefined,
+                        scale=alt.Scale(domain=[0, 50]) if field == "harvesting_efficiency" else None,
                     )
                     chart = (
                         alt.Chart(plot_data)
