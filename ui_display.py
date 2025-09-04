@@ -12,13 +12,7 @@ except Exception:
 # ----------- Sidebar Controls -----------
 def render_controls(station_list):
     """
-    Render sidebar controls (simplified for end users):
-      - Station selector
-      - Intake area selector
-      - Date range selector
-      - Field selection
-    Returns:
-      (selected_station, selected_fields, intake_area, (start_date, end_date))
+    Render sidebar controls (simplified for end users).
     """
     st.sidebar.header("🔧 Controls")
 
@@ -69,7 +63,10 @@ def render_controls(station_list):
     if not _ALT_OK:
         st.sidebar.warning("Altair not installed — using fallback charts.")
 
-    return selected_station_name, selected_fields, intake_area, (start_date, end_date)
+    # ---- Minimal controls dict ----
+    controls = {"lag_steps": 10}
+
+    return selected_station_name, selected_fields, intake_area, (start_date, end_date), controls
 
 
 # ----------- Data Section -----------
