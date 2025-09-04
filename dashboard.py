@@ -119,7 +119,17 @@ end_dt = min(end_of_day, now_local)
 
 df_raw = df_raw[(df_raw["timestamp"] >= start_dt) & (df_raw["timestamp"] <= end_dt)]
 if df_raw.empty:
-    st.info("No data in the selected date range.")
+    # Friendly empty-state message
+    jokes = [
+        "No drops yet — looks like the station took a coffee break ☕. Try a different date!",
+        "Quieter than a cactus at noon 🌵😴. Pick another day or station on the left.",
+        "We checked under every cloud… still dry! ☁️➡️💧 Try another date range.",
+        "No data here, but the vibes are immaculate ✨. Adjust the dates and we’ll pour the graphs!",
+    ]
+    st.markdown("### 👋 Welcome!")
+    st.success(random.choice(jokes))
+    st.caption("Tip: set **Date period** to today or pick a different station in the sidebar.")
+    st.balloons()
     st.stop()
 
 # Process data (clean version)
