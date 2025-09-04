@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import pytz
-from datetime import datetime, time as dtime
 
 from firestore_loader import get_station_list, load_station_data
 from ui_display import render_controls, render_data_section
@@ -19,8 +18,8 @@ stations = get_station_list()
 if not stations:
     st.warning("⚠️ No stations with data available.")
 else:
-    # 🎛 Sidebar controls (UI returns station, fields, intake_area, (start, end))
-    station, selected_fields, intake_area, (start_date, end_date) = render_controls(stations)
+    # 🎛 Sidebar controls (returns station, fields, intake_area, (start, end), controls)
+    station, selected_fields, intake_area, (start_date, end_date), controls = render_controls(stations)
 
     # 📥 Load raw data
     df_raw = load_station_data(station)
@@ -56,8 +55,15 @@ else:
             st.info("⚠️ No data in the selected date range.")
             st.stop()
 
-        # 🧮 Process data (only intake_area used now)
-        df_processed = process_data(df_raw, intake_area=intake_area)
+        # 🧮 Process data with safe defaults
+        df_processed = process_data(
+            df_raw,
+            intake_area=intake_area,
+            lag_steps=controls["lag_steps"],
+            reset_col="reset_flag",
+            count_col="counting",
+            freeze_col="freeze_flag",
+        )
 
         # 🕒 Display most recent update time
         latest_time = df_processed["timestamp"].max()
