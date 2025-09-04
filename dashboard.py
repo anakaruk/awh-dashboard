@@ -19,7 +19,7 @@ if not stations:
     st.warning("⚠️ No stations with data available.")
 else:
     # 🎛 Sidebar controls
-    station, selected_fields, intake_area, (start_date, end_date) = render_controls(stations)
+    station, selected_fields, intake_area, (start_date, end_date), controls = render_controls(stations)
 
     # 📥 Load raw data
     df_raw = load_station_data(station)
@@ -55,11 +55,11 @@ else:
             st.info("⚠️ No data in the selected date range.")
             st.stop()
 
-        # 🧮 Process data (clean, no reset/pause/freeze)
+        # 🧮 Process data
         df_processed = process_data(
             df_raw,
             intake_area=intake_area,
-            lag_steps=10,  # fixed default
+            lag_steps=controls["lag_steps"],
         )
 
         # 🕒 Display most recent update time
