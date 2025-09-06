@@ -1,4 +1,4 @@
-# data_play.py  (Py3.8-safe)
+# data_play.py  — adds flow + pump status, keeps spike-safe efficiency
 import math
 from typing import Optional
 
@@ -6,6 +6,9 @@ import numpy as np
 import pandas as pd
 
 
+# -----------------------------
+# Small helpers
+# -----------------------------
 def calculate_absolute_humidity(temp_c: float, rel_humidity: float) -> Optional[float]:
     """Return absolute humidity (g/m^3), rounded to 2 decimals."""
     try:
@@ -17,9 +20,7 @@ def calculate_absolute_humidity(temp_c: float, rel_humidity: float) -> Optional[
 
 
 def calculate_water_production(weight_series: pd.Series) -> pd.Series:
-    """
-    Accumulate produced water (L) from balance weight (g), allowing resets.
-    """
+    """Accumulate produced water in liters from balance trace (with occasional reset)."""
     total = 0.0
     prev = None
     out = []
@@ -37,20 +38,23 @@ def calculate_water_production(weight_series: pd.Series) -> pd.Series:
     return pd.Series(out, index=weight_series.index)
 
 
+# -----------------------------
+# Main processing
+# -----------------------------
 def process_data(
     df: pd.DataFrame,
     intake_area: float = 1.0,      # m^2
     lag_steps: int = 10,           # rolling window length (samples)
-    min_intake_L: float = 0.02,    # minimum intake in window to trust (% denom)
-    min_prod_L: float = 0.005,     # minimum production in window to call pump "ON"
-    eff_max: float = 120.0,        # drop efficiency outside [0, eff_max]
+    min_intake_L: float = 0.02,    # min intake in window to trust denominator
+    min_prod_L: float = 0.005,     # min production in window to call pump "ON"
+    eff_max: float = 120.0,        # keep efficiency within [0, eff_max]
     power_on_threshold: Optional[float] = None,  # optional gating by power (W)
-    pump_on_col: str = "pump_on",  # optional boolean column if present
+    pump_on_col: str = "pump_on",               # optional boolean column name
 ) -> pd.DataFrame:
 
     df = df.copy()
 
-    # --- timestamp & sample interval ---
+    # --- timestamps & sample interval ---
     if "timestamp" in df.columns:
         df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
         df = df.dropna(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
@@ -114,7 +118,57 @@ def process_data(
     else:
         df["water_production"] = np.nan
 
-    # --- cumulative views ---
+    # ===== New: FLOW & PUMP STATUS =====
+    # Raw fields from your uploader (if present): flow_lmin, flow_hz, flow_total, pump_status (0/1)
+    # 1) Flow total (L)
+    if "flow_total" in df.columns:
+        df["flow_total (L)"] = pd.to_numeric(df["flow_total"], errors="coerce")
+    else:
+        df["flow_total (L)"] = np.nan
+
+    # 2) Flow rate (L/min)
+    flow_rate = pd.Series(np.nan, index=df.index, dtype="float64")
+
+    if "flow_lmin" in df.columns:
+        flow_rate = pd.to_numeric(df["flow_lmin"], errors="coerce")
+
+    # If flow_lmin missing/zero but flow_hz exists, derive: Q(L/min) = Hz / 38
+    if "flow_hz" in df.columns:
+        guess_from_hz = pd.to_numeric(df["flow_hz"], errors="coerce") / 38.0
+        # use whichever is available and positive
+        flow_rate = np.where(pd.notna(flow_rate) & (flow_rate > 0), flow_rate, guess_from_hz)
+
+    # If still NaN and total exists, back-calc from total derivative
+    if "sample_interval" in df.columns:
+        total_col = df["flow_total (L)"]
+        if total_col.notna().any():
+            d_total = total_col.diff().clip(lower=0)  # L per sample
+            rate_from_total = (d_total / df["sample_interval"]) * 60.0  # L/min
+            flow_rate = np.where(
+                np.isfinite(flow_rate) & (flow_rate > 0),
+                flow_rate,
+                rate_from_total,
+            )
+
+    df["flow_rate (L/min)"] = pd.to_numeric(flow_rate, errors="coerce").clip(lower=0)
+
+    # If total missing but rate exists, integrate to get total
+    if df["flow_total (L)"].isna().all() and "sample_interval" in df.columns:
+        step_L = (df["flow_rate (L/min)"].fillna(0) / 60.0) * df["sample_interval"].fillna(0)
+        df["flow_total (L)"] = step_L.cumsum()
+
+    # 3) Pump status (0/1 + bool + text)
+    if "pump_status" in df.columns:
+        df["pump_status"] = pd.to_numeric(df["pump_status"], errors="coerce").fillna(0).astype(int).clip(lower=0, upper=1)
+        df["pump_on"] = df["pump_status"] == 1
+    else:
+        # fallback: consider pump ON when we actually produced water in the window (set later); init False
+        df["pump_status"] = np.nan
+        df["pump_on"] = False
+
+    df["pump_status_text"] = np.where(df["pump_on"], "ON", "OFF")
+
+    # --- cumulative views (existing) ---
     df["accumulated_intake_water"] = df["intake_step (L)"].cumsum().round(3)
     df["accumulated_energy (kWh)"] = df["energy_step (kWh)"].cumsum().round(6)
 
@@ -135,13 +189,13 @@ def process_data(
     prod_roll = prod_step.rolling(window=win, min_periods=1).sum()     # L over window
     intake_roll = df["intake_step (L)"].rolling(window=win, min_periods=1).sum()
 
-    # Pump ON gating
-    if pump_on_col in df.columns:
+    # Pump ON gating priority: explicit pump_on column -> power threshold -> production-based
+    if pump_on_col in df.columns and df[pump_on_col].any():
         pump_on_win = df[pump_on_col].astype(bool).rolling(window=win, min_periods=1).mean() >= 0.5
     elif (power_on_threshold is not None) and ("power" in df.columns):
         pump_on_win = (df["power"] > float(power_on_threshold)).rolling(window=win, min_periods=1).mean() >= 0.5
     else:
-        pump_on_win = prod_roll > float(min_prod_L)  # ON if we actually produced water
+        pump_on_win = prod_roll > float(min_prod_L)
 
     with np.errstate(divide="ignore", invalid="ignore"):
         eff_raw = 100.0 * (prod_roll / intake_roll)
