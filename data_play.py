@@ -1,4 +1,4 @@
-# data_play.py — simple harvesting; compute only when pump is ON; drop >50%
+# data_play.py — back to the classic harvesting calc (5-min lag, no pump gating)
 import math
 from typing import Optional
 import numpy as np
@@ -6,7 +6,6 @@ import pandas as pd
 
 
 def calculate_absolute_humidity(temp_c: float, rel_humidity: float) -> Optional[float]:
-    """Absolute humidity (g/m^3), rounded to 2 decimals."""
     try:
         num = 6.112 * math.exp((17.67 * temp_c) / (temp_c + 243.5)) * rel_humidity * 2.1674
         den = 273.15 + temp_c
@@ -16,13 +15,12 @@ def calculate_absolute_humidity(temp_c: float, rel_humidity: float) -> Optional[
 
 
 def calculate_water_production(weight_series: pd.Series) -> pd.Series:
-    """Accumulate produced water (L) from balance (grams), allowing resets."""
+    """Accumulate produced water (L) from balance (g), allowing resets."""
     total, prev = 0.0, None
     out = []
     for w in weight_series:
         if pd.isna(w):
-            out.append(np.nan)
-            continue
+            out.append(np.nan); continue
         w = float(w)
         if prev is None:
             total = w
@@ -33,12 +31,7 @@ def calculate_water_production(weight_series: pd.Series) -> pd.Series:
     return pd.Series(out, index=weight_series.index)
 
 
-def process_data(
-    df: pd.DataFrame,
-    intake_area: float = 1.0,
-    lag_steps: int = 10,  # kept for API compatibility; not used in simple formula
-) -> pd.DataFrame:
-
+def process_data(df: pd.DataFrame, intake_area: float = 1.0, lag_steps: int = 10) -> pd.DataFrame:
     df = df.copy()
 
     # --- timestamps & sample interval ---
@@ -47,11 +40,10 @@ def process_data(
         df = df.dropna(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
         dt = df["timestamp"].diff().dt.total_seconds()
         med = dt.iloc[1:].median() if len(dt) > 1 else 30
-        if pd.isna(med) or med <= 0:
-            med = 30
+        if pd.isna(med) or med <= 0: med = 30
         df["sample_interval"] = dt.fillna(med).clip(lower=max(1.0, med / 3.0))
 
-    # --- rename to final schema if raw names present ---
+    # --- rename incoming fields to final schema (if needed) ---
     rename_map = {
         "velocity": "intake_air_velocity (m/s)",
         "temperature": "intake_air_temperature (C)",
@@ -67,16 +59,12 @@ def process_data(
     # --- absolute humidity ---
     if {"intake_air_temperature (C)", "intake_air_humidity (%)"}.issubset(df.columns):
         df["absolute_intake_air_humidity"] = df.apply(
-            lambda r: calculate_absolute_humidity(
-                r["intake_air_temperature (C)"], r["intake_air_humidity (%)"]
-            ),
+            lambda r: calculate_absolute_humidity(r["intake_air_temperature (C)"], r["intake_air_humidity (%)"]),
             axis=1,
         )
     if {"outtake_air_temperature (C)", "outtake_air_humidity (%)"}.issubset(df.columns):
         df["absolute_outtake_air_humidity"] = df.apply(
-            lambda r: calculate_absolute_humidity(
-                r["outtake_air_temperature (C)"], r["outtake_air_humidity (%)"]
-            ),
+            lambda r: calculate_absolute_humidity(r["outtake_air_temperature (C)"], r["outtake_air_humidity (%)"]),
             axis=1,
         )
 
@@ -98,13 +86,13 @@ def process_data(
     else:
         df["energy_step (kWh)"] = 0.0
 
-    # --- water production from balance ---
+    # --- water production from balance (L) ---
     if "weight" in df.columns:
         df["water_production"] = calculate_water_production(df["weight"])
     else:
         df["water_production"] = np.nan
 
-    # ===== Optional: flow & pump fields (kept for plotting; not shown at top) =====
+    # --- flow fields left intact for plotting if you need them ---
     if "flow_total" in df.columns:
         df["flow_total (L)"] = pd.to_numeric(df["flow_total"], errors="coerce")
     else:
@@ -127,13 +115,6 @@ def process_data(
         step_L = (df["flow_rate (L/min)"].fillna(0) / 60.0) * df["sample_interval"].fillna(0)
         df["flow_total (L)"] = step_L.cumsum()
 
-    # Pump status
-    if "pump_status" in df.columns:
-        df["pump_status"] = pd.to_numeric(df["pump_status"], errors="coerce").fillna(0).astype(int).clip(0, 1)
-        df["pump_on"] = df["pump_status"] == 1
-    else:
-        df["pump_on"] = True  # if unknown, allow calculation (no gating)
-
     # --- cumulative views ---
     df["accumulated_intake_water"] = df["intake_step (L)"].cumsum().round(3)
     df["accumulated_energy (kWh)"] = df["energy_step (kWh)"].cumsum().round(6)
@@ -147,21 +128,22 @@ def process_data(
     )
 
     # =============================
-    # Harvesting efficiency (simple)
-    #   per-sample: 100 * production_step / intake_step
-    #   compute only when pump_on == True
-    #   drop values > 50 (%)
+    # Harvesting efficiency — classic method
+    #   1) step from cumulative series
+    #   2) apply 5-minute lag (shift -12 samples)
+    #   3) HE = 100 * production_step_lagged / intake_step
     # =============================
-    prod_step = df["water_production"].diff().clip(lower=0)            # L/sample
-    denom = df["intake_step (L)"].replace(0, np.nan)                   # avoid /0
-    eff_raw = (100.0 * (prod_step / denom)).where(pd.notna(denom))
+    df["intake_step"] = df["accumulated_intake_water"].diff()
+    df["production_step"] = df["water_production"].diff()
 
-    # gate by pump status
-    eff_gated = eff_raw.where(df["pump_on"], np.nan)
+    # 5-minute lag (historical assumption of ~12 samples ≈ 5 min)
+    df["production_step_lagged"] = df["production_step"].shift(-12)
 
-    # drop overshoots > 50%
-    eff_final = eff_gated.where((eff_gated >= 0) & (eff_gated <= 50))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        he = 100.0 * (df["production_step_lagged"] / df["intake_step"])
 
-    df["harvesting_efficiency"] = eff_final.round(2)
+    # keep NaN when denom <= 0 or any side missing
+    valid = (df["intake_step"] > 0) & pd.notna(df["production_step_lagged"])
+    df["harvesting_efficiency"] = he.where(valid).round(2)
 
     return df
