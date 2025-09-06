@@ -106,7 +106,7 @@ def render_data_section(df, station_name, selected_fields):
     df_sorted["Date"] = df_sorted["timestamp"].dt.date
     df_sorted["Time"] = df_sorted["timestamp"].dt.strftime("%H:%M:%S")
 
-    # ---- NEW: quick status chips / metrics (if available) ----
+    # ---- Status metrics (latest values) ----
     last_row = df_sorted.tail(1).iloc[0]
     top_cols = st.columns(3)
 
@@ -169,27 +169,80 @@ def render_data_section(df, station_name, selected_fields):
                 elif field == "pump_status":
                     y_scale = alt.Scale(domain=[-0.1, 1.1])
 
-                # Choose a suitable mark
-                if field in ("flow_total (L)", "water_production", "accumulated_energy (kWh)"):
-                    mark = alt.MarkDef(type="line")
-                else:
-                    mark = alt.MarkDef(type="circle", size=20, opacity=0.75)
-
-                chart = (
-                    alt.Chart(plot_data)
-                    .mark(**mark.to_dict())
-                    .encode(
-                        x=alt.X(
-                            "timestamp:T",
-                            title="Date & Time",
-                            axis=alt.Axis(format="%Y-%m-%d %H:%M", labelAngle=-45),
-                        ),
-                        y=alt.Y(field, title=field, scale=y_scale),
-                        tooltip=["timestamp:T", field],
+                # energy_per_liter: hourly bars
+                if field == "energy_per_liter (kWh/L)":
+                    agg = plot_data.copy()
+                    agg["Hour"] = agg["timestamp"].dt.floor("H")
+                    hourly_plot = (
+                        agg.groupby("Hour")[field]
+                        .mean()
+                        .reset_index()
+                        .rename(columns={"Hour": "timestamp"})
                     )
-                    .properties(width="container", height=300)
-                    .interactive()
-                )
+                    chart = (
+                        alt.Chart(hourly_plot)
+                        .mark_bar()
+                        .encode(
+                            x=alt.X("timestamp:T", title="Hour", axis=alt.Axis(format="%H:%M")),
+                            y=alt.Y(field, title="Energy per Liter (kWh/L)"),
+                            tooltip=["timestamp:T", field],
+                        )
+                        .properties(width="container", height=300)
+                        .interactive()
+                    )
+                else:
+                    # pick a suitable mark for each field
+                    if field in ("flow_total (L)", "water_production", "accumulated_energy (kWh)"):
+                        chart = (
+                            alt.Chart(plot_data)
+                            .mark_line()
+                            .encode(
+                                x=alt.X(
+                                    "timestamp:T",
+                                    title="Date & Time",
+                                    axis=alt.Axis(format="%Y-%m-%d %H:%M", labelAngle=-45),
+                                ),
+                                y=alt.Y(field, title=field, scale=y_scale),
+                                tooltip=["timestamp:T", field],
+                            )
+                            .properties(width="container", height=300)
+                            .interactive()
+                        )
+                    elif field == "pump_status":
+                        # stepped line to show ON/OFF transitions
+                        chart = (
+                            alt.Chart(plot_data)
+                            .mark_line(interpolate="step-after")
+                            .encode(
+                                x=alt.X(
+                                    "timestamp:T",
+                                    title="Date & Time",
+                                    axis=alt.Axis(format="%Y-%m-%d %H:%M", labelAngle=-45),
+                                ),
+                                y=alt.Y(field, title=field, scale=y_scale),
+                                tooltip=["timestamp:T", field],
+                            )
+                            .properties(width="container", height=300)
+                            .interactive()
+                        )
+                    else:
+                        chart = (
+                            alt.Chart(plot_data)
+                            .mark_circle(size=20, opacity=0.75)
+                            .encode(
+                                x=alt.X(
+                                    "timestamp:T",
+                                    title="Date & Time",
+                                    axis=alt.Axis(format="%Y-%m-%d %H:%M", labelAngle=-45),
+                                ),
+                                y=alt.Y(field, title=field, scale=y_scale),
+                                tooltip=["timestamp:T", field],
+                            )
+                            .properties(width="container", height=300)
+                            .interactive()
+                        )
+
                 st.altair_chart(chart, use_container_width=True)
             else:
+                # Fallback chart (no Altair)
                 st.line_chart(plot_data.set_index("timestamp")[[field]], use_container_width=True)
