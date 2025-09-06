@@ -1,16 +1,12 @@
-# data_play.py  — flow & pump fields + spike-safe efficiency (Py3.8-safe)
+# data_play.py — simple harvesting; compute only when pump is ON; drop >50%
 import math
 from typing import Optional
-
 import numpy as np
 import pandas as pd
 
 
-# -----------------------------
-# Helpers
-# -----------------------------
 def calculate_absolute_humidity(temp_c: float, rel_humidity: float) -> Optional[float]:
-    """Return absolute humidity (g/m^3), rounded to 2 decimals."""
+    """Absolute humidity (g/m^3), rounded to 2 decimals."""
     try:
         num = 6.112 * math.exp((17.67 * temp_c) / (temp_c + 243.5)) * rel_humidity * 2.1674
         den = 273.15 + temp_c
@@ -20,9 +16,8 @@ def calculate_absolute_humidity(temp_c: float, rel_humidity: float) -> Optional[
 
 
 def calculate_water_production(weight_series: pd.Series) -> pd.Series:
-    """Accumulate produced water in liters from balance trace (with occasional reset)."""
-    total = 0.0
-    prev = None
+    """Accumulate produced water (L) from balance (grams), allowing resets."""
+    total, prev = 0.0, None
     out = []
     for w in weight_series:
         if pd.isna(w):
@@ -38,18 +33,10 @@ def calculate_water_production(weight_series: pd.Series) -> pd.Series:
     return pd.Series(out, index=weight_series.index)
 
 
-# -----------------------------
-# Main processing
-# -----------------------------
 def process_data(
     df: pd.DataFrame,
-    intake_area: float = 1.0,      # m^2
-    lag_steps: int = 10,           # rolling window length (samples)
-    min_intake_L: float = 0.02,    # min intake in window to trust denominator
-    min_prod_L: float = 0.005,     # min production in window to call pump "ON"
-    eff_max: float = 120.0,        # keep efficiency within [0, eff_max]
-    power_on_threshold: Optional[float] = None,  # optional gating by power (W)
-    pump_on_col: str = "pump_on",               # optional boolean column name
+    intake_area: float = 1.0,
+    lag_steps: int = 10,  # kept for API compatibility; not used in simple formula
 ) -> pd.DataFrame:
 
     df = df.copy()
@@ -64,7 +51,7 @@ def process_data(
             med = 30
         df["sample_interval"] = dt.fillna(med).clip(lower=max(1.0, med / 3.0))
 
-    # --- rename incoming fields to final schema ---
+    # --- rename to final schema if raw names present ---
     rename_map = {
         "velocity": "intake_air_velocity (m/s)",
         "temperature": "intake_air_temperature (C)",
@@ -77,7 +64,7 @@ def process_data(
         if old in df.columns:
             df.rename(columns={old: new}, inplace=True)
 
-    # --- absolute humidity (g/m^3) ---
+    # --- absolute humidity ---
     if {"intake_air_temperature (C)", "intake_air_humidity (%)"}.issubset(df.columns):
         df["absolute_intake_air_humidity"] = df.apply(
             lambda r: calculate_absolute_humidity(
@@ -85,7 +72,6 @@ def process_data(
             ),
             axis=1,
         )
-
     if {"outtake_air_temperature (C)", "outtake_air_humidity (%)"}.issubset(df.columns):
         df["absolute_outtake_air_humidity"] = df.apply(
             lambda r: calculate_absolute_humidity(
@@ -112,57 +98,43 @@ def process_data(
     else:
         df["energy_step (kWh)"] = 0.0
 
-    # --- water production from balance (L) ---
+    # --- water production from balance ---
     if "weight" in df.columns:
         df["water_production"] = calculate_water_production(df["weight"])
     else:
         df["water_production"] = np.nan
 
-    # ===== FLOW & PUMP STATUS (robust pandas-only) =====
-    # 1) Flow total (L)
+    # ===== Optional: flow & pump fields (kept for plotting; not shown at top) =====
     if "flow_total" in df.columns:
         df["flow_total (L)"] = pd.to_numeric(df["flow_total"], errors="coerce")
     else:
         df["flow_total (L)"] = pd.Series(np.nan, index=df.index, dtype="float64")
 
-    # 2) Flow rate (L/min)
     flow_rate = pd.Series(np.nan, index=df.index, dtype="float64")
-
     if "flow_lmin" in df.columns:
         flow_rate = pd.to_numeric(df["flow_lmin"], errors="coerce")
-
     if "flow_hz" in df.columns:
         guess_from_hz = pd.to_numeric(df["flow_hz"], errors="coerce") / 38.0
-        # fill where current rate is NaN or <= 0
-        need_fill = (~pd.notna(flow_rate)) | (flow_rate <= 0)
-        flow_rate = flow_rate.where(~need_fill, guess_from_hz)
-
+        need = (~pd.notna(flow_rate)) | (flow_rate <= 0)
+        flow_rate = flow_rate.where(~need, guess_from_hz)
     if "sample_interval" in df.columns and df["flow_total (L)"].notna().any():
-        d_total = df["flow_total (L)"].diff()
-        d_total = d_total.where(d_total >= 0, 0.0)  # avoid negatives on resets
+        d_total = df["flow_total (L)"].diff().clip(lower=0)
         rate_from_total = (d_total / df["sample_interval"].replace(0, np.nan)) * 60.0
-        need_fill = (~pd.notna(flow_rate)) | (flow_rate <= 0)
-        flow_rate = flow_rate.where(~need_fill, rate_from_total)
-
-    df["flow_rate (L/min)"] = pd.to_numeric(flow_rate, errors="coerce")
-    df["flow_rate (L/min)"] = df["flow_rate (L/min)"].clip(lower=0)
-
-    # If total missing but rate exists, integrate to get total
+        need = (~pd.notna(flow_rate)) | (flow_rate <= 0)
+        flow_rate = flow_rate.where(~need, rate_from_total)
+    df["flow_rate (L/min)"] = pd.to_numeric(flow_rate, errors="coerce").clip(lower=0)
     if df["flow_total (L)"].isna().all() and "sample_interval" in df.columns:
         step_L = (df["flow_rate (L/min)"].fillna(0) / 60.0) * df["sample_interval"].fillna(0)
         df["flow_total (L)"] = step_L.cumsum()
 
-    # 3) Pump status (0/1 + bool + text)
+    # Pump status
     if "pump_status" in df.columns:
         df["pump_status"] = pd.to_numeric(df["pump_status"], errors="coerce").fillna(0).astype(int).clip(0, 1)
         df["pump_on"] = df["pump_status"] == 1
     else:
-        df["pump_status"] = pd.Series(np.nan, index=df.index)
-        df["pump_on"] = False
+        df["pump_on"] = True  # if unknown, allow calculation (no gating)
 
-    df["pump_status_text"] = np.where(df["pump_on"], "ON", "OFF")
-
-    # --- cumulative views (existing) ---
+    # --- cumulative views ---
     df["accumulated_intake_water"] = df["intake_step (L)"].cumsum().round(3)
     df["accumulated_energy (kWh)"] = df["energy_step (kWh)"].cumsum().round(6)
 
@@ -175,30 +147,21 @@ def process_data(
     )
 
     # =============================
-    # Harvesting efficiency (pump-aware, spike-resistant)
+    # Harvesting efficiency (simple)
+    #   per-sample: 100 * production_step / intake_step
+    #   compute only when pump_on == True
+    #   drop values > 50 (%)
     # =============================
-    win = max(int(lag_steps), 1)
-
     prod_step = df["water_production"].diff().clip(lower=0)            # L/sample
-    prod_roll = prod_step.rolling(window=win, min_periods=1).sum()     # L over window
-    intake_roll = df["intake_step (L)"].rolling(window=win, min_periods=1).sum()
+    denom = df["intake_step (L)"].replace(0, np.nan)                   # avoid /0
+    eff_raw = (100.0 * (prod_step / denom)).where(pd.notna(denom))
 
-    # Pump ON gating priority: explicit pump_on column -> power threshold -> production-based
-    if pump_on_col in df.columns and df[pump_on_col].any():
-        pump_on_win = df[pump_on_col].astype(bool).rolling(window=win, min_periods=1).mean() >= 0.5
-    elif (power_on_threshold is not None) and ("power" in df.columns):
-        pump_on_win = (df["power"] > float(power_on_threshold)).rolling(window=win, min_periods=1).mean() >= 0.5
-    else:
-        pump_on_win = prod_roll > float(min_prod_L)
+    # gate by pump status
+    eff_gated = eff_raw.where(df["pump_on"], np.nan)
 
-    with np.errstate(divide="ignore", invalid="ignore"):
-        eff_raw = 100.0 * (prod_roll / intake_roll)
+    # drop overshoots > 50%
+    eff_final = eff_gated.where((eff_gated >= 0) & (eff_gated <= 50))
 
-    good_den = intake_roll >= float(min_intake_L)
-    good_num = prod_roll >= float(min_prod_L)
-    in_range = (eff_raw >= 0.0) & (eff_raw <= float(eff_max))
-
-    keep = pump_on_win & good_den & good_num & in_range
-    df["harvesting_efficiency"] = eff_raw.where(keep, np.nan).round(2)
+    df["harvesting_efficiency"] = eff_final.round(2)
 
     return df
