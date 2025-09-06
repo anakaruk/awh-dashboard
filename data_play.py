@@ -6,21 +6,17 @@ import math
 # Helpers
 # -----------------------------
 
-def calculate_absolute_humidity(temp_c: float, rel_humidity: float) -> float | None:
-    """g/m^3, rounded to 2 decimals."""
+def calculate_absolute_humidity(temp_c, rel_humidity):
     try:
-        num = 6.112 * math.exp((17.67 * temp_c) / (temp_c + 243.5)) * rel_humidity * 2.1674
-        den = 273.15 + temp_c
-        return round(num / den, 2)
+        numerator = 6.112 * math.exp((17.67 * temp_c) / (temp_c + 243.5)) * rel_humidity * 2.1674
+        denominator = 273.15 + temp_c
+        return round(numerator / denominator, 2)
     except Exception:
         return None
 
 
 def calculate_water_production(weight_series: pd.Series) -> pd.Series:
-    """
-    Accumulate produced water (L) from balance trace, allowing resets.
-    Assumes 'weight' is in grams and never decreases except when reset.
-    """
+    """Accumulate produced water in liters from balance trace (with occasional reset)."""
     total, prev = 0.0, None
     out = []
     for w in weight_series:
@@ -36,26 +32,25 @@ def calculate_water_production(weight_series: pd.Series) -> pd.Series:
         out.append(total / 1000.0)  # g → L
     return pd.Series(out, index=weight_series.index)
 
-
 # -----------------------------
-# Main processing
+# Main
 # -----------------------------
 
 def process_data(
     df: pd.DataFrame,
+    intake_area: float = 1.0,
+    lag_steps: int = 10,
     *,
-    intake_area: float = 1.0,      # m^2
-    lag_steps: int = 10,           # rolling window for efficiency
-    min_intake_L: float = 0.02,    # minimum intake in window to trust (% denom)
-    min_prod_L: float = 0.005,     # minimum production in window to call pump "ON"
-    eff_max: float = 120.0,        # drop efficiency outside [0, eff_max]
-    power_on_threshold: float | None = None,  # optional gating by power (W)
-    pump_on_col: str = "pump_on",  # optional boolean column if you have it
+    min_intake_L: float = 0.02,   # require at least this much intake over the window
+    min_prod_L: float = 0.005,    # require at least this much production over the window
+    eff_max: float = 120.0,       # drop any efficiency above this
+    power_on_threshold: float | None = None,  # optional pump gating by power if 'power' exists
+    pump_on_col: str = "pump_on"  # optional boolean column you may already have
 ) -> pd.DataFrame:
 
     df = df.copy()
 
-    # ----- timestamps & sample interval -----
+    # --- timestamp & sample interval ---
     if "timestamp" in df.columns:
         df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
         df = df.dropna(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
@@ -63,9 +58,9 @@ def process_data(
         med = dt.iloc[1:].median() if len(dt) > 1 else 30
         if pd.isna(med) or med <= 0:
             med = 30
-        df["sample_interval"] = dt.fillna(med).clip(lower=max(1, med / 3))
+        df["sample_interval"] = dt.fillna(med).clip(lower=med/3)
 
-    # ----- rename incoming fields to your final schema -----
+    # --- rename fields to final names (if present) ---
     rename_map = {
         "velocity": "intake_air_velocity (m/s)",
         "temperature": "intake_air_temperature (C)",
@@ -78,52 +73,47 @@ def process_data(
         if old in df.columns:
             df.rename(columns={old: new}, inplace=True)
 
-    # ----- absolute humidity (g/m^3) -----
+    # --- absolute humidity ---
     if {"intake_air_temperature (C)", "intake_air_humidity (%)"}.issubset(df.columns):
         df["absolute_intake_air_humidity"] = df.apply(
-            lambda r: calculate_absolute_humidity(
-                r["intake_air_temperature (C)"], r["intake_air_humidity (%)"]
-            ),
-            axis=1,
+            lambda r: calculate_absolute_humidity(r["intake_air_temperature (C)"], r["intake_air_humidity (%)"]),
+            axis=1
         )
-
     if {"outtake_air_temperature (C)", "outtake_air_humidity (%)"}.issubset(df.columns):
         df["absolute_outtake_air_humidity"] = df.apply(
-            lambda r: calculate_absolute_humidity(
-                r["outtake_air_temperature (C)"], r["outtake_air_humidity (% )"]
-            ),
-            axis=1,
+            lambda r: calculate_absolute_humidity(r["outtake_air_temperature (C)"], r["outtake_air_humidity (%)"]),
+            axis=1
         )
 
-    # ----- intake step per sample (L) -----
+    # --- intake step (L/sample) ---
     if {"absolute_intake_air_humidity", "intake_air_velocity (m/s)", "sample_interval"}.issubset(df.columns):
         df["intake_step (L)"] = (
             df["absolute_intake_air_humidity"].fillna(0)
             * df["intake_air_velocity (m/s)"].clip(lower=0).fillna(0)
             * float(intake_area)
             * df["sample_interval"].fillna(0)
-            / 1000.0  # g → kg ~ L
+            / 1000.0
         ).clip(lower=0)
     else:
         df["intake_step (L)"] = 0.0
 
-    # ----- energy step (kWh) -----
+    # --- energy step (kWh) ---
     if {"power", "sample_interval"}.issubset(df.columns):
         df["energy_step (kWh)"] = (df["power"].fillna(0) * (df["sample_interval"] / 3600.0) / 1000.0)
     else:
         df["energy_step (kWh)"] = 0.0
 
-    # ----- water production from balance (L) -----
+    # --- water production from balance ---
     if "weight" in df.columns:
         df["water_production"] = calculate_water_production(df["weight"])
     else:
         df["water_production"] = np.nan
 
-    # ----- cumulative views -----
+    # --- cumulative views ---
     df["accumulated_intake_water"] = df["intake_step (L)"].cumsum().round(3)
     df["accumulated_energy (kWh)"] = df["energy_step (kWh)"].cumsum().round(6)
 
-    # ----- energy per liter -----
+    # --- energy per liter ---
     wp = df["water_production"].astype(float)
     df["energy_per_liter (kWh/L)"] = np.where(
         (wp > 0) & np.isfinite(wp),
@@ -131,27 +121,29 @@ def process_data(
         np.nan,
     )
 
-    # =============================
-    # Harvesting efficiency (fixed)
-    # =============================
+    # -----------------------------
+    # Harvesting efficiency (pump-aware, spike-resistant)
+    # -----------------------------
     win = max(int(lag_steps), 1)
 
-    prod_step = df["water_production"].diff().clip(lower=0)          # L/sample
-    prod_roll = prod_step.rolling(window=win, min_periods=1).sum()   # L over window
-    intake_roll = df["intake_step (L)"].rolling(window=win, min_periods=1).sum()  # L over window
+    # rolling sums
+    prod_step = df["water_production"].diff().clip(lower=0)
+    prod_roll = prod_step.rolling(window=win, min_periods=1).sum()
+    intake_roll = df["intake_step (L)"].rolling(window=win, min_periods=1).sum()
 
-    # Pump ON gate:
+    # pump ON detection
     if pump_on_col in df.columns:
         pump_on_win = df[pump_on_col].astype(bool).rolling(window=win, min_periods=1).mean() >= 0.5
     elif (power_on_threshold is not None) and ("power" in df.columns):
         pump_on_win = (df["power"] > float(power_on_threshold)).rolling(window=win, min_periods=1).mean() >= 0.5
     else:
-        # default: if we actually produced water in the window
+        # default: treat as ON when we actually produced water in the window
         pump_on_win = prod_roll > float(min_prod_L)
 
     with np.errstate(divide="ignore", invalid="ignore"):
         eff_raw = 100.0 * (prod_roll / intake_roll)
 
+    # validity masks
     good_den = intake_roll >= float(min_intake_L)
     good_num = prod_roll >= float(min_prod_L)
     in_range = (eff_raw >= 0.0) & (eff_raw <= float(eff_max))
