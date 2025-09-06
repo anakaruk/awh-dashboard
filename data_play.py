@@ -1,4 +1,4 @@
-# data_play.py  — adds flow + pump status, keeps spike-safe efficiency
+# data_play.py  — flow & pump fields + spike-safe efficiency (Py3.8-safe)
 import math
 from typing import Optional
 
@@ -7,7 +7,7 @@ import pandas as pd
 
 
 # -----------------------------
-# Small helpers
+# Helpers
 # -----------------------------
 def calculate_absolute_humidity(temp_c: float, rel_humidity: float) -> Optional[float]:
     """Return absolute humidity (g/m^3), rounded to 2 decimals."""
@@ -118,13 +118,12 @@ def process_data(
     else:
         df["water_production"] = np.nan
 
-    # ===== New: FLOW & PUMP STATUS =====
-    # Raw fields from your uploader (if present): flow_lmin, flow_hz, flow_total, pump_status (0/1)
+    # ===== FLOW & PUMP STATUS (robust pandas-only) =====
     # 1) Flow total (L)
     if "flow_total" in df.columns:
         df["flow_total (L)"] = pd.to_numeric(df["flow_total"], errors="coerce")
     else:
-        df["flow_total (L)"] = np.nan
+        df["flow_total (L)"] = pd.Series(np.nan, index=df.index, dtype="float64")
 
     # 2) Flow rate (L/min)
     flow_rate = pd.Series(np.nan, index=df.index, dtype="float64")
@@ -132,25 +131,21 @@ def process_data(
     if "flow_lmin" in df.columns:
         flow_rate = pd.to_numeric(df["flow_lmin"], errors="coerce")
 
-    # If flow_lmin missing/zero but flow_hz exists, derive: Q(L/min) = Hz / 38
     if "flow_hz" in df.columns:
         guess_from_hz = pd.to_numeric(df["flow_hz"], errors="coerce") / 38.0
-        # use whichever is available and positive
-        flow_rate = np.where(pd.notna(flow_rate) & (flow_rate > 0), flow_rate, guess_from_hz)
+        # fill where current rate is NaN or <= 0
+        need_fill = (~pd.notna(flow_rate)) | (flow_rate <= 0)
+        flow_rate = flow_rate.where(~need_fill, guess_from_hz)
 
-    # If still NaN and total exists, back-calc from total derivative
-    if "sample_interval" in df.columns:
-        total_col = df["flow_total (L)"]
-        if total_col.notna().any():
-            d_total = total_col.diff().clip(lower=0)  # L per sample
-            rate_from_total = (d_total / df["sample_interval"]) * 60.0  # L/min
-            flow_rate = np.where(
-                np.isfinite(flow_rate) & (flow_rate > 0),
-                flow_rate,
-                rate_from_total,
-            )
+    if "sample_interval" in df.columns and df["flow_total (L)"].notna().any():
+        d_total = df["flow_total (L)"].diff()
+        d_total = d_total.where(d_total >= 0, 0.0)  # avoid negatives on resets
+        rate_from_total = (d_total / df["sample_interval"].replace(0, np.nan)) * 60.0
+        need_fill = (~pd.notna(flow_rate)) | (flow_rate <= 0)
+        flow_rate = flow_rate.where(~need_fill, rate_from_total)
 
-    df["flow_rate (L/min)"] = pd.to_numeric(flow_rate, errors="coerce").clip(lower=0)
+    df["flow_rate (L/min)"] = pd.to_numeric(flow_rate, errors="coerce")
+    df["flow_rate (L/min)"] = df["flow_rate (L/min)"].clip(lower=0)
 
     # If total missing but rate exists, integrate to get total
     if df["flow_total (L)"].isna().all() and "sample_interval" in df.columns:
@@ -159,11 +154,10 @@ def process_data(
 
     # 3) Pump status (0/1 + bool + text)
     if "pump_status" in df.columns:
-        df["pump_status"] = pd.to_numeric(df["pump_status"], errors="coerce").fillna(0).astype(int).clip(lower=0, upper=1)
+        df["pump_status"] = pd.to_numeric(df["pump_status"], errors="coerce").fillna(0).astype(int).clip(0, 1)
         df["pump_on"] = df["pump_status"] == 1
     else:
-        # fallback: consider pump ON when we actually produced water in the window (set later); init False
-        df["pump_status"] = np.nan
+        df["pump_status"] = pd.Series(np.nan, index=df.index)
         df["pump_on"] = False
 
     df["pump_status_text"] = np.where(df["pump_on"], "ON", "OFF")
