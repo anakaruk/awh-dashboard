@@ -1,6 +1,7 @@
 # ui_display.py
 import streamlit as st
 import pandas as pd
+import numpy as np
 
 # Optional Altair import (fallback to Streamlit charts if unavailable)
 try:
@@ -17,7 +18,7 @@ def render_controls(station_list):
 
     Returns:
         selected_station (str|None)
-        selected_fields (list[str])
+        selected_fields (list)
         intake_area (float|None)
         (start_date, end_date) (tuple[date, date])
         controls (dict)  -> currently {"lag_steps": 10}
@@ -71,7 +72,9 @@ def render_controls(station_list):
 
     selected_fields = ["timestamp"]
     for label, col in field_options:
-        if st.sidebar.checkbox(label, value=(col == "harvesting_efficiency")):
+        # Default to showing harvesting efficiency
+        default_checked = (col == "harvesting_efficiency")
+        if st.sidebar.checkbox(label, value=default_checked):
             selected_fields.append(col)
 
     if not _ALT_OK:
@@ -85,7 +88,8 @@ def render_controls(station_list):
 
 # ---------------- Main data section ----------------
 def render_data_section(df, station_name, selected_fields):
-    st.title(f"📊 AWH Dashboard – {station_name}")
+    title = f"📊 AWH Dashboard – {station_name}" if station_name else "📊 AWH Dashboard"
+    st.title(title)
 
     if df.empty:
         st.warning("No data found for this station.")
@@ -105,33 +109,44 @@ def render_data_section(df, station_name, selected_fields):
 
         with col1:
             st.markdown("#### 📋 Table")
-            st.dataframe(df_sorted[["Date", "Time", field]], use_container_width=True)
+            # show a reasonable number of rows to keep UI responsive
+            table_view = df_sorted[["Date", "Time", field]].copy()
+            st.dataframe(table_view, use_container_width=True)
 
             st.download_button(
                 label=f"⬇️ Download {field} CSV",
-                data=df_sorted[["Date", "Time", field]].to_csv(index=False),
-                file_name=f"{station_name}_{field.replace(' ', '_')}.csv",
+                data=table_view.to_csv(index=False),
+                file_name=f"{station_name or 'station'}_{field.replace(' ', '_')}.csv",
                 mime="text/csv",
             )
 
         with col2:
             st.markdown("#### 📈 Plot")
 
-            # Ensure numeric for plotting
-            df_sorted[field] = pd.to_numeric(df_sorted[field], errors="coerce")
-            plot_data = df_sorted[["timestamp", field]].dropna()
+            # Ensure numeric for plotting; drop NaN/Inf
+            plot_data = df_sorted[["timestamp", field]].copy()
+            plot_data[field] = pd.to_numeric(plot_data[field], errors="coerce")
+            plot_data.replace([np.inf, -np.inf], np.nan, inplace=True)
+            plot_data.dropna(subset=[field], inplace=True)
 
             if plot_data.empty:
                 st.info(f"⚠️ No data available to plot for **{field}**.")
                 continue
 
             if _ALT_OK:
+                # Clamp axis for harvesting_efficiency and also filter any overshoot to keep the scale stable
+                y_scale = alt.Undefined
+                if field == "harvesting_efficiency":
+                    # filter out-of-band values so they don't affect scale or tooltips
+                    plot_data = plot_data[(plot_data[field] >= 0) & (plot_data[field] <= 120)]
+                    y_scale = alt.Scale(domain=[0, 120])
+
                 if field == "energy_per_liter (kWh/L)":
-                    # Hourly average as columns
-                    plot_data = plot_data.copy()
-                    plot_data["Hour"] = plot_data["timestamp"].dt.floor("H")
+                    # Hourly average as columns (this can be noisy per-sample)
+                    agg = plot_data.copy()
+                    agg["Hour"] = agg["timestamp"].dt.floor("H")
                     hourly_plot = (
-                        plot_data.groupby("Hour")[field]
+                        agg.groupby("Hour")[field]
                         .mean()
                         .reset_index()
                         .rename(columns={"Hour": "timestamp"})
@@ -141,26 +156,29 @@ def render_data_section(df, station_name, selected_fields):
                         .mark_bar()
                         .encode(
                             x=alt.X("timestamp:T", title="Hour", axis=alt.Axis(format="%H:%M")),
-                            y=alt.Y(field, title="Energy per Liter (kWh/L)"),
+                            y=alt.Y(field, title="Energy per Liter (kWh/L)", scale=y_scale),
                             tooltip=["timestamp:T", field],
                         )
                         .properties(width="container", height=300)
+                        .interactive()
                     )
                 else:
                     chart = (
                         alt.Chart(plot_data)
-                        .mark_circle(size=56)
+                        .mark_circle(size=20, opacity=0.75)
                         .encode(
                             x=alt.X(
                                 "timestamp:T",
                                 title="Date & Time",
                                 axis=alt.Axis(format="%Y-%m-%d %H:%M", labelAngle=-45),
                             ),
-                            y=alt.Y(field, title=field),
+                            y=alt.Y(field, title=field, scale=y_scale),
                             tooltip=["timestamp:T", field],
                         )
                         .properties(width="container", height=300)
+                        .interactive()
                     )
+
                 st.altair_chart(chart, use_container_width=True)
             else:
                 st.line_chart(plot_data.set_index("timestamp")[[field]], use_container_width=True)
