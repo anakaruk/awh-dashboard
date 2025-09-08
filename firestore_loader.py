@@ -2,8 +2,12 @@ import os
 import json
 import pandas as pd
 from google.cloud import firestore
+from google.api_core.retry import Retry
 import streamlit as st
 from datetime import datetime
+
+# Global retry for Firestore reads (handles transient 503/timeout cases)
+RETRY = Retry()
 
 # 🔐 Load credentials from Streamlit secrets
 @st.cache_resource
@@ -28,56 +32,65 @@ db = get_firestore_client()
 def get_station_list():
     try:
         station_ids_with_data = []
-        for station_ref in db.collection("stations").list_documents(page_size=1000):
-            readings_q = (
+        # list_documents supports retry
+        for station_ref in db.collection("stations").list_documents(page_size=1000, retry=RETRY):
+            # Use .get(retry=...) (short-lived) instead of .stream()
+            has_one = bool(
                 db.collection("stations")
                   .document(station_ref.id)
                   .collection("readings")
                   .limit(1)
+                  .get(retry=RETRY)
             )
-            # Use stream() (no retry arg under the hood)
-            has_one = next(iter(readings_q.stream()), None) is not None
             if has_one:
                 station_ids_with_data.append(station_ref.id)
-
         return sorted(station_ids_with_data)
     except Exception as e:
         st.error(f"❌ Error loading station list: {e}")
         return []
 
-# 📥 Load data for a specific station, sorted by timestamp
+# 📥 Load data for a specific station, sorted by timestamp (batched; no long-lived stream)
 @st.cache_data(ttl=60)
 def load_station_data(station_id: str) -> pd.DataFrame:
     try:
-        readings_q = (
+        base = (
             db.collection("stations")
               .document(station_id)
               .collection("readings")
               .order_by("timestamp", direction=firestore.Query.ASCENDING)
         )
 
+        batch_size = 2000
+        cursor = None
         records = []
-        for doc in readings_q.stream():  # stream() is safe here
-            data = doc.to_dict() or {}
-            data["id"] = doc.id
 
-            ts = data.get("timestamp")
-            # Firestore usually returns a timezone-aware datetime already.
-            if isinstance(ts, datetime):
-                data["timestamp"] = ts
-            else:
-                # Fallback: try to coerce anything else
-                data["timestamp"] = pd.to_datetime(ts, utc=True, errors="coerce")
+        while True:
+            q = base.limit(batch_size)
+            if cursor is not None:
+                q = q.start_after(cursor)
+            snaps = q.get(retry=RETRY)  # short RPC; avoids the streaming/_retry bug
+            if not snaps:
+                break
 
-            records.append(data)
+            for doc in snaps:
+                data = (doc.to_dict() or {}).copy()
+                data["id"] = doc.id
+                ts = data.get("timestamp")
+                if isinstance(ts, datetime):
+                    dt = ts
+                else:
+                    dt = pd.to_datetime(ts, utc=True, errors="coerce")
+                data["timestamp"] = dt
+                records.append(data)
+
+            cursor = snaps[-1]  # page forward
 
         df = pd.DataFrame(records)
         if df.empty:
             st.info(f"ℹ️ No records found for station `{station_id}`.")
             return df
 
-        df = df.dropna(subset=["timestamp"]).sort_values("timestamp")
-        return df
+        return df.dropna(subset=["timestamp"]).sort_values("timestamp")
 
     except Exception as e:
         st.error(f"❌ Failed to load data for station `{station_id}`: {e}")
