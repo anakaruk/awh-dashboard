@@ -9,7 +9,8 @@ from datetime import datetime
 @st.cache_resource
 def get_firestore_client():
     try:
-        service_account_info = json.loads(st.secrets["gcp_service_account"])
+        raw = st.secrets.get("gcp_service_account")
+        service_account_info = json.loads(raw) if isinstance(raw, str) else dict(raw)
         key_path = "/tmp/service_account.json"
         with open(key_path, "w") as f:
             json.dump(service_account_info, f)
@@ -26,13 +27,18 @@ db = get_firestore_client()
 @st.cache_data(ttl=60)
 def get_station_list():
     try:
-        station_docs = db.collection("stations").list_documents()
         station_ids_with_data = []
-
-        for station_doc in station_docs:
-            readings_ref = db.collection("stations").document(station_doc.id).collection("readings")
-            if readings_ref.limit(1).get():
-                station_ids_with_data.append(station_doc.id)
+        for station_ref in db.collection("stations").list_documents(page_size=1000):
+            readings_q = (
+                db.collection("stations")
+                  .document(station_ref.id)
+                  .collection("readings")
+                  .limit(1)
+            )
+            # Use stream() (no retry arg under the hood)
+            has_one = next(iter(readings_q.stream()), None) is not None
+            if has_one:
+                station_ids_with_data.append(station_ref.id)
 
         return sorted(station_ids_with_data)
     except Exception as e:
@@ -41,9 +47,9 @@ def get_station_list():
 
 # 📥 Load data for a specific station, sorted by timestamp
 @st.cache_data(ttl=60)
-def load_station_data(station_id):
+def load_station_data(station_id: str) -> pd.DataFrame:
     try:
-        readings_ref = (
+        readings_q = (
             db.collection("stations")
               .document(station_id)
               .collection("readings")
@@ -51,28 +57,26 @@ def load_station_data(station_id):
         )
 
         records = []
-        for doc in readings_ref.stream():
-            data = doc.to_dict()
+        for doc in readings_q.stream():  # stream() is safe here
+            data = doc.to_dict() or {}
             data["id"] = doc.id
 
             ts = data.get("timestamp")
-            if hasattr(ts, "to_datetime"):
-                data["timestamp"] = ts.to_datetime()
-            elif isinstance(ts, datetime):
+            # Firestore usually returns a timezone-aware datetime already.
+            if isinstance(ts, datetime):
                 data["timestamp"] = ts
             else:
-                data["timestamp"] = None
+                # Fallback: try to coerce anything else
+                data["timestamp"] = pd.to_datetime(ts, utc=True, errors="coerce")
 
             records.append(data)
 
         df = pd.DataFrame(records)
-
         if df.empty:
             st.info(f"ℹ️ No records found for station `{station_id}`.")
-        else:
-            df = df.dropna(subset=["timestamp"])
-            df = df.sort_values("timestamp")
+            return df
 
+        df = df.dropna(subset=["timestamp"]).sort_values("timestamp")
         return df
 
     except Exception as e:
