@@ -85,13 +85,13 @@ def process_data(df: pd.DataFrame, intake_area: float = 1.0, lag_steps: int = 10
             df.rename(columns={old: new}, inplace=True)
 
     # --- remove spikes dynamically ---
-    # Humidity: >60% above last-10 average
+    # Humidity: >20% above last-5 average
     if "intake_air_humidity (%)" in df.columns:
         df["intake_air_humidity (%)"] = _remove_spikes(df["intake_air_humidity (%)"], window=10, threshold=0.6)
     if "outtake_air_humidity (%)" in df.columns:
         df["outtake_air_humidity (%)"] = _remove_spikes(df["outtake_air_humidity (%)"], window=10, threshold=0.6)
 
-    # Velocity: >200% above last-10 average
+    # Velocity: >500% above last-5 average
     if "intake_air_velocity (m/s)" in df.columns:
         df["intake_air_velocity (m/s)"] = _remove_spikes(df["intake_air_velocity (m/s)"], window=10, threshold=2.0)
     if "outtake_air_velocity (m/s)" in df.columns:
