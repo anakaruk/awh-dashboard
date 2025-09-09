@@ -73,7 +73,7 @@ def process_data(df: pd.DataFrame, intake_area: float = 1.0, lag_steps: int = 10
         if old in df.columns:
             df.rename(columns={old: new}, inplace=True)
 
-    # --- strict filtering: remove unrealistic humidity & velocity ---
+    # --- strict filtering: remove unrealistic humidity, velocity, temperature ---
     if "intake_air_humidity (%)" in df.columns:
         df.loc[df["intake_air_humidity (%)"] > 101, "intake_air_humidity (%)"] = np.nan
     if "outtake_air_humidity (%)" in df.columns:
@@ -83,6 +83,11 @@ def process_data(df: pd.DataFrame, intake_area: float = 1.0, lag_steps: int = 10
         df.loc[df["intake_air_velocity (m/s)"] > 15, "intake_air_velocity (m/s)"] = np.nan
     if "outtake_air_velocity (m/s)" in df.columns:
         df.loc[df["outtake_air_velocity (m/s)"] > 15, "outtake_air_velocity (m/s)"] = np.nan
+
+    if "intake_air_temperature (C)" in df.columns:
+        df.loc[df["intake_air_temperature (C)"] > 100, "intake_air_temperature (C)"] = np.nan
+    if "outtake_air_temperature (C)" in df.columns:
+        df.loc[df["outtake_air_temperature (C)"] > 100, "outtake_air_temperature (C)"] = np.nan
 
     # --- absolute humidity (g/m^3) ---
     if {"intake_air_temperature (C)", "intake_air_humidity (%)"}.issubset(df.columns):
