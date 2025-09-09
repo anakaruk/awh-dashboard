@@ -1,4 +1,4 @@
-# dashboard.py
+# dashboard.py — fast landing page (status only), heavy load after click
 import random
 import streamlit as st
 import pandas as pd
@@ -16,44 +16,70 @@ st.title("📊 AWH Station Monitoring Dashboard")
 LOCAL_TZ = pytz.timezone("America/Phoenix")
 
 
-# ---------- Last-seen helpers ----------
-@st.cache_data(ttl=60)
-def _last_seen_for_station(station: str):
+# ---------- Firestore (status-only lightweight client) ----------
+@st.cache_resource
+def _get_db():
     """
-    Return most-recent timestamp for a station, tz-aware (Arizona).
-    Tries a lightweight read (if supported), else falls back to full read.
+    Minimal Firestore client for tiny reads (status only).
+    Uses Streamlit secrets if present; if not, status will be skipped.
     """
-    # Fast path: try limit/order if supported by loader
     try:
-        df_try = load_station_data(station, limit=1, order="desc")
-        if isinstance(df_try, pd.DataFrame) and not df_try.empty and "timestamp" in df_try:
-            ts = pd.to_datetime(df_try["timestamp"], errors="coerce").max()
-            if pd.notna(ts):
-                if ts.tzinfo is None:
-                    ts = ts.tz_localize("UTC").tz_convert(LOCAL_TZ)
-                else:
-                    ts = ts.tz_convert(LOCAL_TZ)
-                return ts
-    except TypeError:
-        pass
-    except Exception:
-        pass
+        import os, json
+        from google.cloud import firestore
 
-    # Fallback: full read (avoid if possible)
+        service_account_info = json.loads(st.secrets["gcp_service_account"])
+        key_path = "/tmp/service_account.json"
+        with open(key_path, "w") as f:
+            json.dump(service_account_info, f)
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = key_path
+        return firestore.Client()
+    except Exception:
+        return None
+
+db = _get_db()
+
+
+# ---------- Last-seen helpers (no full-load fallback) ----------
+@st.cache_data(ttl=45)
+def _last_seen_for_station_fast(station: str):
+    """
+    Return most-recent timestamp for a station (Arizona tz) using a single tiny query:
+      stations/{station}/readings ORDER BY timestamp DESC LIMIT 1
+    Absolutely no fallback to load-all.
+    """
+    if db is None:
+        return None
     try:
-        df = load_station_data(station)
-        if isinstance(df, pd.DataFrame) and not df.empty and "timestamp" in df:
-            ts = pd.to_datetime(df["timestamp"], errors="coerce").max()
-            if pd.notna(ts):
-                if ts.tzinfo is None:
-                    ts = ts.tz_localize("UTC").tz_convert(LOCAL_TZ)
-                else:
-                    ts = ts.tz_convert(LOCAL_TZ)
-                return ts
-    except Exception:
-        pass
+        from google.cloud.firestore_v1 import Query
 
-    return None
+        ref = (
+            db.collection("stations")
+              .document(station)
+              .collection("readings")
+              .order_by("timestamp", direction=Query.DESCENDING)
+              .limit(1)
+        )
+        docs = list(ref.stream())
+        if not docs:
+            return None
+
+        d = docs[0].to_dict()
+        ts = d.get("timestamp")
+        if ts is None:
+            return None
+
+        ts = pd.to_datetime(ts, errors="coerce")
+        if pd.isna(ts):
+            return None
+
+        # normalize to LOCAL_TZ
+        if ts.tzinfo is None:
+            ts = ts.tz_localize("UTC").tz_convert(LOCAL_TZ)
+        else:
+            ts = ts.tz_convert(LOCAL_TZ)
+        return ts
+    except Exception:
+        return None
 
 
 def _render_station_status(stations: list[str]):
@@ -61,7 +87,8 @@ def _render_station_status(stations: list[str]):
     st.subheader("Station Status (last 5 minutes)")
     now_local = pd.Timestamp.now(tz=LOCAL_TZ)
 
-    last_seen_map = {s: _last_seen_for_station(s) for s in stations}
+    # tiny per-station reads; no dataset loads
+    last_seen_map = {s: _last_seen_for_station_fast(s) for s in stations}
     online_map = {
         s: bool(ts and (now_local - ts <= timedelta(minutes=5)))
         for s, ts in last_seen_map.items()
@@ -87,24 +114,21 @@ def _render_station_status(stations: list[str]):
 @st.cache_data(ttl=120, show_spinner=False)
 def _load_df_windowed(station: str, start_dt: pd.Timestamp, end_dt: pd.Timestamp) -> pd.DataFrame:
     """
-    Try to ask loader for a time window; if not supported, load-all then filter.
-    Never resample/downsample.
+    Ask loader for a time window if supported; otherwise load-all then filter.
+    This runs ONLY after the user clicks 'Load & Plot'.
     """
-    # Normalize tz
+    # Ensure tz-aware
     if start_dt.tzinfo is None:
         start_dt = start_dt.tz_localize(LOCAL_TZ)
     if end_dt.tzinfo is None:
         end_dt = end_dt.tz_localize(LOCAL_TZ)
 
-    # Try windowed fetch first (if loader supports)
     try:
-        df = load_station_data(station, start_dt=start_dt, end_dt=end_dt)  # type: ignore
-        if isinstance(df, pd.DataFrame):
-            pass
-        else:
+        df = load_station_data(station, start_dt=start_dt, end_dt=end_dt)  # preferred, if supported
+        if not isinstance(df, pd.DataFrame):
             df = pd.DataFrame()
     except TypeError:
-        # Fallback: full load then filter
+        # Fallback only here (after click), not on landing
         df = load_station_data(station)
     except Exception as e:
         st.error(f"❌ Failed to load data: {e}")
@@ -123,15 +147,14 @@ def _load_df_windowed(station: str, start_dt: pd.Timestamp, end_dt: pd.Timestamp
         else:
             df["timestamp"] = df["timestamp"].dt.tz_convert(LOCAL_TZ)
     except Exception:
-        # If already localized to LOCAL_TZ, keep as is
         pass
 
-    # Final window filter (guards fallback/full-load case)
+    # Final window filter
     df = df[(df["timestamp"] >= start_dt) & (df["timestamp"] <= end_dt)]
     return df
 
 
-# ---------- Load station list & status header ----------
+# ---------- Load station list & status header (fast path) ----------
 stations = get_station_list()
 if not stations:
     st.warning("No stations with data available.")
@@ -143,7 +166,7 @@ _ = _render_station_status(stations)
 # (render_controls returns None for station/intake_area until the user picks them)
 station, selected_fields, intake_area, (start_date, end_date), controls = render_controls(stations)
 
-# Require basic selections
+# Require selections before doing anything heavy
 if station is None or intake_area is None:
     st.info("👈 Please select a **station** and an **air intake area** in the sidebar to get started.")
     st.stop()
@@ -165,7 +188,7 @@ col_left, col_right = st.columns([1, 3])
 with col_left:
     load_btn = st.button("🚀 Load & Plot", type="primary")
 with col_right:
-    st.caption("This avoids loading big data until you explicitly request it.")
+    st.caption("Landing page uses tiny 'last update' reads only; big data loads happen after this click.")
 
 if load_btn:
     st.session_state.ready_to_plot = True
