@@ -73,11 +73,11 @@ def process_data(df: pd.DataFrame, intake_area: float = 1.0, lag_steps: int = 10
         if old in df.columns:
             df.rename(columns={old: new}, inplace=True)
 
-    # --- clamp humidity spikes to ≤105% ---
+    # --- drop humidity spikes above 105% ---
     if "intake_air_humidity (%)" in df.columns:
-        df["intake_air_humidity (%)"] = pd.to_numeric(df["intake_air_humidity (%)"], errors="coerce").clip(upper=105)
+        df.loc[df["intake_air_humidity (%)"] > 105, "intake_air_humidity (%)"] = np.nan
     if "outtake_air_humidity (%)" in df.columns:
-        df["outtake_air_humidity (%)"] = pd.to_numeric(df["outtake_air_humidity (%)"], errors="coerce").clip(upper=105)
+        df.loc[df["outtake_air_humidity (%)"] > 105, "outtake_air_humidity (%)"] = np.nan
 
     # --- absolute humidity (g/m^3) ---
     if {"intake_air_temperature (C)", "intake_air_humidity (%)"}.issubset(df.columns):
