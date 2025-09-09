@@ -76,7 +76,7 @@ def render_data_section(df, station_name, selected_fields):
     title = f"📊 AWH Dashboard – {station_name}" if station_name else "📊 AWH Dashboard"
     st.title(title)
 
-    if df.empty:
+    if df.empty or "timestamp" not in df.columns:
         st.warning("No data found for this station.")
         return
 
