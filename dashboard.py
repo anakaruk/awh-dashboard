@@ -3,7 +3,7 @@ import random
 import streamlit as st
 import pandas as pd
 import pytz
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from firestore_loader import get_station_list, load_station_data
 from ui_display import render_controls, render_data_section
@@ -23,8 +23,9 @@ def _last_seen_for_station(station: str):
     Return most-recent timestamp for a station, tz-aware (Arizona).
     Tries a lightweight read (if supported), else falls back to full read.
     """
+    # Fast path: try limit/order if supported by loader
     try:
-        df_try = load_station_data(station, limit=1, order="desc")  # optional fast path
+        df_try = load_station_data(station, limit=1, order="desc")
         if isinstance(df_try, pd.DataFrame) and not df_try.empty and "timestamp" in df_try:
             ts = pd.to_datetime(df_try["timestamp"], errors="coerce").max()
             if pd.notna(ts):
@@ -38,15 +39,20 @@ def _last_seen_for_station(station: str):
     except Exception:
         pass
 
-    df = load_station_data(station)
-    if isinstance(df, pd.DataFrame) and not df.empty and "timestamp" in df:
-        ts = pd.to_datetime(df["timestamp"], errors="coerce").max()
-        if pd.notna(ts):
-            if ts.tzinfo is None:
-                ts = ts.tz_localize("UTC").tz_convert(LOCAL_TZ)
-            else:
-                ts = ts.tz_convert(LOCAL_TZ)
-            return ts
+    # Fallback: full read (avoid if possible)
+    try:
+        df = load_station_data(station)
+        if isinstance(df, pd.DataFrame) and not df.empty and "timestamp" in df:
+            ts = pd.to_datetime(df["timestamp"], errors="coerce").max()
+            if pd.notna(ts):
+                if ts.tzinfo is None:
+                    ts = ts.tz_localize("UTC").tz_convert(LOCAL_TZ)
+                else:
+                    ts = ts.tz_convert(LOCAL_TZ)
+                return ts
+    except Exception:
+        pass
+
     return None
 
 
@@ -56,8 +62,10 @@ def _render_station_status(stations: list[str]):
     now_local = pd.Timestamp.now(tz=LOCAL_TZ)
 
     last_seen_map = {s: _last_seen_for_station(s) for s in stations}
-    online_map = {s: bool(ts and (now_local - ts <= timedelta(minutes=5)))
-                  for s, ts in last_seen_map.items()}
+    online_map = {
+        s: bool(ts and (now_local - ts <= timedelta(minutes=5)))
+        for s, ts in last_seen_map.items()
+    }
 
     per_row = 4
     for i, s in enumerate(stations):
@@ -67,10 +75,60 @@ def _render_station_status(stations: list[str]):
             ts = last_seen_map[s]
             dot = "🟢" if online_map[s] else "🔴"
             st.markdown(f"**{s}** {dot}")
-            st.caption(f"Last seen: {ts.strftime('%Y-%m-%d %H:%M:%S')} AZ" if ts else "Last seen: —")
+            st.caption(
+                f"Last seen: {ts.strftime('%Y-%m-%d %H:%M:%S')} AZ" if ts else "Last seen: —"
+            )
 
     st.divider()
     return online_map, last_seen_map
+
+
+# ---------- Cached heavy loader wrapper (windowed, no sampling) ----------
+@st.cache_data(ttl=120, show_spinner=False)
+def _load_df_windowed(station: str, start_dt: pd.Timestamp, end_dt: pd.Timestamp) -> pd.DataFrame:
+    """
+    Try to ask loader for a time window; if not supported, load-all then filter.
+    Never resample/downsample.
+    """
+    # Normalize tz
+    if start_dt.tzinfo is None:
+        start_dt = start_dt.tz_localize(LOCAL_TZ)
+    if end_dt.tzinfo is None:
+        end_dt = end_dt.tz_localize(LOCAL_TZ)
+
+    # Try windowed fetch first (if loader supports)
+    try:
+        df = load_station_data(station, start_dt=start_dt, end_dt=end_dt)  # type: ignore
+        if isinstance(df, pd.DataFrame):
+            pass
+        else:
+            df = pd.DataFrame()
+    except TypeError:
+        # Fallback: full load then filter
+        df = load_station_data(station)
+    except Exception as e:
+        st.error(f"❌ Failed to load data: {e}")
+        return pd.DataFrame()
+
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    df = df.copy()
+    # Ensure tz-aware timestamps (Arizona)
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    df = df.dropna(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
+    try:
+        if df["timestamp"].dt.tz is None:
+            df["timestamp"] = df["timestamp"].dt.tz_localize("UTC").dt.tz_convert(LOCAL_TZ)
+        else:
+            df["timestamp"] = df["timestamp"].dt.tz_convert(LOCAL_TZ)
+    except Exception:
+        # If already localized to LOCAL_TZ, keep as is
+        pass
+
+    # Final window filter (guards fallback/full-load case)
+    df = df[(df["timestamp"] >= start_dt) & (df["timestamp"] <= end_dt)]
+    return df
 
 
 # ---------- Load station list & status header ----------
@@ -82,30 +140,15 @@ if not stations:
 _ = _render_station_status(stations)
 
 # ---------- Sidebar controls ----------
-# (render_controls now returns None for station/intake_area until the user picks them)
+# (render_controls returns None for station/intake_area until the user picks them)
 station, selected_fields, intake_area, (start_date, end_date), controls = render_controls(stations)
 
-# Wait for required selections
+# Require basic selections
 if station is None or intake_area is None:
     st.info("👈 Please select a **station** and an **air intake area** in the sidebar to get started.")
     st.stop()
 
-# ---------- Load data for selected station ----------
-df_raw = load_station_data(station)
-if df_raw.empty:
-    st.warning(f"No data found for station: {station}")
-    st.stop()
-
-# ---------- Ensure tz-aware timestamps (Arizona) ----------
-df_raw = df_raw.copy()
-df_raw["timestamp"] = pd.to_datetime(df_raw["timestamp"], errors="coerce")
-df_raw = df_raw.dropna(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
-if df_raw["timestamp"].dt.tz is None:
-    df_raw["timestamp"] = df_raw["timestamp"].dt.tz_localize("UTC").dt.tz_convert(LOCAL_TZ)
-else:
-    df_raw["timestamp"] = df_raw["timestamp"].dt.tz_convert(LOCAL_TZ)
-
-# ---------- Date filter: start-of-day → now ----------
+# ---------- Build time window (start-of-day to end-of-day or now) ----------
 if end_date < start_date:
     start_date, end_date = end_date, start_date
 
@@ -114,7 +157,27 @@ end_of_day = pd.Timestamp(end_date).tz_localize(LOCAL_TZ) + pd.Timedelta(days=1)
 now_local = pd.Timestamp.now(tz=LOCAL_TZ)
 end_dt = min(end_of_day, now_local)
 
-df_raw = df_raw[(df_raw["timestamp"] >= start_dt) & (df_raw["timestamp"] <= end_dt)]
+# ---------- Load & Plot trigger ----------
+if "ready_to_plot" not in st.session_state:
+    st.session_state.ready_to_plot = False
+
+col_left, col_right = st.columns([1, 3])
+with col_left:
+    load_btn = st.button("🚀 Load & Plot", type="primary")
+with col_right:
+    st.caption("This avoids loading big data until you explicitly request it.")
+
+if load_btn:
+    st.session_state.ready_to_plot = True
+
+# ---------- Heavy path (only after click) ----------
+if not st.session_state.ready_to_plot:
+    st.info("Select date range then press **Load & Plot** to fetch data and draw charts.")
+    st.stop()
+
+with st.spinner("Loading data..."):
+    df_raw = _load_df_windowed(station, start_dt, end_dt)
+
 if df_raw.empty:
     jokes = [
         "No drops yet — looks like the station took a coffee break ☕. Try a different date!",
@@ -125,10 +188,9 @@ if df_raw.empty:
     st.markdown("### 👋 Welcome!")
     st.success(random.choice(jokes))
     st.caption("Tip: set **Date period** to today or pick a different station in the sidebar.")
-    st.balloons()
     st.stop()
 
-# ---------- Process & display ----------
+# ---------- Process & display (no sampling involved) ----------
 df_processed = process_data(
     df_raw,
     intake_area=float(intake_area),
