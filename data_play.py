@@ -47,19 +47,6 @@ def calculate_water_production(weight_series: pd.Series) -> pd.Series:
 def process_data(df: pd.DataFrame, intake_area: float = 1.0, lag_steps: int = 10) -> pd.DataFrame:
     """
     Produces derived metrics used by the dashboard.
-
-    Key outputs
-    -----------
-    intake_step (L)                   : per-sample intake water
-    accumulated_intake_water (L)      : cumulative intake
-    water_production (L)              : cumulative production
-    energy_step / accumulated_energy  : kWh per step / cumulative kWh
-    energy_per_liter (kWh/L)          : cumulative energy per liter
-    harvesting_efficiency_raw (%)     : per-sample HE with time-based 5-min lag
-    harvesting_efficiency (%)         : window-aggregated HE (clean, readable)
-    harvesting_efficiency_smooth (%)  : optional rolling-median of the windowed HE
-    flow_rate (L/min), flow_total (L) : if flow signals available
-    pump_status / pump_on             : if provided (not used in HE)
     """
     df = df.copy()
 
@@ -73,7 +60,7 @@ def process_data(df: pd.DataFrame, intake_area: float = 1.0, lag_steps: int = 10
             med = 30.0
         df["sample_interval"] = dt.fillna(med).clip(lower=max(1.0, med / 3.0))
 
-    # --- normalize incoming names to the final schema (if alternates appear) ---
+    # --- normalize incoming names to the final schema ---
     rename_map = {
         "velocity": "intake_air_velocity (m/s)",
         "temperature": "intake_air_temperature (C)",
@@ -85,6 +72,12 @@ def process_data(df: pd.DataFrame, intake_area: float = 1.0, lag_steps: int = 10
     for old, new in rename_map.items():
         if old in df.columns:
             df.rename(columns={old: new}, inplace=True)
+
+    # --- clamp humidity spikes to ≤105% ---
+    if "intake_air_humidity (%)" in df.columns:
+        df["intake_air_humidity (%)"] = pd.to_numeric(df["intake_air_humidity (%)"], errors="coerce").clip(upper=105)
+    if "outtake_air_humidity (%)" in df.columns:
+        df["outtake_air_humidity (%)"] = pd.to_numeric(df["outtake_air_humidity (%)"], errors="coerce").clip(upper=105)
 
     # --- absolute humidity (g/m^3) ---
     if {"intake_air_temperature (C)", "intake_air_humidity (%)"}.issubset(df.columns):
@@ -109,7 +102,7 @@ def process_data(df: pd.DataFrame, intake_area: float = 1.0, lag_steps: int = 10
             * df["intake_air_velocity (m/s)"].clip(lower=0).fillna(0)
             * float(intake_area)
             * df["sample_interval"].fillna(0)
-            / 1000.0  # g -> kg ~ L
+            / 1000.0
         ).clip(lower=0)
     else:
         df["intake_step (L)"] = 0.0
@@ -120,13 +113,13 @@ def process_data(df: pd.DataFrame, intake_area: float = 1.0, lag_steps: int = 10
     else:
         df["energy_step (kWh)"] = 0.0
 
-    # --- water production from balance (cumulative L) ---
+    # --- water production from balance ---
     if "weight" in df.columns:
         df["water_production"] = calculate_water_production(df["weight"])
     else:
         df["water_production"] = np.nan
 
-    # --- optional flow & pump (for plotting; not used in HE) ---
+    # --- optional flow & pump ---
     if "flow_total" in df.columns:
         df["flow_total (L)"] = pd.to_numeric(df["flow_total"], errors="coerce")
     else:
@@ -155,7 +148,7 @@ def process_data(df: pd.DataFrame, intake_area: float = 1.0, lag_steps: int = 10
         df["pump_status"] = pd.to_numeric(df["pump_status"], errors="coerce").fillna(0).astype(int).clip(0, 1)
         df["pump_on"] = df["pump_status"] == 1
     else:
-        df["pump_on"] = pd.Series(np.nan, index=df.index)  # present but unused
+        df["pump_on"] = pd.Series(np.nan, index=df.index)
 
     # --- cumulative views ---
     df["accumulated_intake_water"] = df["intake_step (L)"].cumsum().round(3)
@@ -169,27 +162,19 @@ def process_data(df: pd.DataFrame, intake_area: float = 1.0, lag_steps: int = 10
         np.nan,
     )
 
-    # =======================================================
-    # Harvesting efficiency — time-based 5-min lag + windowed
-    # =======================================================
-    # per-sample production (L)
+    # --- harvesting efficiency ---
     production_step = df["water_production"].diff().clip(lower=0)
-
-    # time-based lag (always ~5 minutes regardless of sampling rate)
     lag_seconds = 300  # 5 minutes
     med_dt = df["sample_interval"].iloc[1:].median() if "sample_interval" in df.columns else 30.0
     if pd.isna(med_dt) or med_dt <= 0:
         med_dt = 30.0
     lag_n = max(1, int(round(lag_seconds / med_dt)))
 
-    # RAW (per-sample) HE for debugging/inspection
     denom_raw = df["intake_step (L)"].replace(0, np.nan)
     he_raw = 100.0 * (production_step.shift(-lag_n) / denom_raw)
     df["harvesting_efficiency_raw"] = he_raw.round(2)
 
-    # WINDOWED HE (readable): integrate intake & production over a short window,
-    # then compare to the *future* production window
-    window_seconds = 120  # 2-minute accumulation; adjust (e.g., 60/180) to taste
+    window_seconds = 120
     win_n = max(1, int(round(window_seconds / med_dt)))
     min_periods = max(1, win_n // 2)
 
@@ -197,13 +182,11 @@ def process_data(df: pd.DataFrame, intake_area: float = 1.0, lag_steps: int = 10
     prod_win = production_step.rolling(win_n, min_periods=min_periods).sum()
     prod_win_lagged = prod_win.shift(-lag_n)
 
-    # avoid divide-by-zero: require a tiny intake in the window
-    min_intake_window_L = 0.01  # liters
+    min_intake_window_L = 0.01
     denom = intake_win.where(intake_win >= min_intake_window_L)
     with np.errstate(divide="ignore", invalid="ignore"):
         he_windowed = 100.0 * (prod_win_lagged / denom)
 
-    # (optional) light smoothing for readability
     he_smooth = he_windowed.rolling(max(3, win_n // 2), min_periods=1, center=True).median()
 
     df["harvesting_efficiency"] = he_windowed.round(2)
