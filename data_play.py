@@ -41,6 +41,17 @@ def calculate_water_production(weight_series: pd.Series) -> pd.Series:
     return pd.Series(out, index=weight_series.index)
 
 
+def _remove_spikes(series: pd.Series, window: int = 10, threshold: float = 0.6) -> pd.Series:
+    """
+    Replace spikes with NaN if they are more than `threshold` (e.g., 0.6 = 60%)
+    above the rolling mean of the previous `window` points.
+    """
+    s = pd.to_numeric(series, errors="coerce")
+    roll_mean = s.rolling(window=window, min_periods=1).mean().shift(1)  # past window
+    mask = s > (1 + threshold) * roll_mean
+    return s.where(~mask, np.nan)
+
+
 # -----------------------------
 # Main processing
 # -----------------------------
@@ -73,11 +84,18 @@ def process_data(df: pd.DataFrame, intake_area: float = 1.0, lag_steps: int = 10
         if old in df.columns:
             df.rename(columns={old: new}, inplace=True)
 
-    # --- drop humidity spikes above 105% ---
+    # --- remove spikes dynamically ---
+    # Humidity: >60% above last-10 average
     if "intake_air_humidity (%)" in df.columns:
-        df.loc[df["intake_air_humidity (%)"] > 105, "intake_air_humidity (%)"] = np.nan
+        df["intake_air_humidity (%)"] = _remove_spikes(df["intake_air_humidity (%)"], window=10, threshold=0.6)
     if "outtake_air_humidity (%)" in df.columns:
-        df.loc[df["outtake_air_humidity (%)"] > 105, "outtake_air_humidity (%)"] = np.nan
+        df["outtake_air_humidity (%)"] = _remove_spikes(df["outtake_air_humidity (%)"], window=10, threshold=0.6)
+
+    # Velocity: >200% above last-10 average
+    if "intake_air_velocity (m/s)" in df.columns:
+        df["intake_air_velocity (m/s)"] = _remove_spikes(df["intake_air_velocity (m/s)"], window=10, threshold=2.0)
+    if "outtake_air_velocity (m/s)" in df.columns:
+        df["outtake_air_velocity (m/s)"] = _remove_spikes(df["outtake_air_velocity (m/s)"], window=10, threshold=2.0)
 
     # --- absolute humidity (g/m^3) ---
     if {"intake_air_temperature (C)", "intake_air_humidity (%)"}.issubset(df.columns):
