@@ -1,4 +1,4 @@
-# firestore_loader.py — optimized loader with window + field selection
+# firestore_loader.py — optimized Firestore loader with window + field selection
 import os
 import json
 import pandas as pd
@@ -61,26 +61,35 @@ def load_station_data(
     try:
         ref = db.collection("stations").document(station_id).collection("readings")
 
-        # Date filters
-        if start is not None:
-            ref = ref.where("timestamp", ">=", start)
-        if end is not None:
-            ref = ref.where("timestamp", "<=", end)
+        # ---- Normalize start/end to naive UTC ----
+        def _to_utc_naive(dt):
+            if dt is None:
+                return None
+            ts = pd.to_datetime(dt, utc=True)
+            return ts.to_pydatetime().replace(tzinfo=None)
 
-        # Field selection (always include timestamp)
+        start_utc = _to_utc_naive(start)
+        end_utc = _to_utc_naive(end)
+
+        if start_utc:
+            ref = ref.where("timestamp", ">=", start_utc)
+        if end_utc:
+            ref = ref.where("timestamp", "<=", end_utc)
+
+        # ---- Field selection (always include timestamp) ----
         if fields:
             cols = list(set(fields) | {"timestamp"})
             ref = ref.select(cols)
 
-        # Ordering
+        # ---- Ordering ----
         direction = firestore.Query.ASCENDING if order == "asc" else firestore.Query.DESCENDING
         ref = ref.order_by("timestamp", direction=direction)
 
-        # Limit if requested
+        # ---- Limit ----
         if limit:
             ref = ref.limit(limit)
 
-        # Run query (single batch; Firestore applies filters server-side)
+        # ---- Run query ----
         snaps = ref.get(retry=RETRY)
 
         records = []
@@ -88,7 +97,7 @@ def load_station_data(
             data = doc.to_dict() or {}
             ts = data.get("timestamp")
             if isinstance(ts, datetime):
-                dt = ts
+                dt = pd.to_datetime(ts, utc=True)
             else:
                 dt = pd.to_datetime(ts, utc=True, errors="coerce")
             data["timestamp"] = dt
@@ -99,7 +108,7 @@ def load_station_data(
         if df.empty:
             return df
 
-        return df.dropna(subset=["timestamp"]).sort_values("timestamp")
+        return df.dropna(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
 
     except Exception as e:
         st.error(f"❌ Failed to load data for station `{station_id}`: {e}")
