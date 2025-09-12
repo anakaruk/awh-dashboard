@@ -39,10 +39,7 @@ db = _get_db()
 # ---------- Last-seen helpers ----------
 @st.cache_data(ttl=45)
 def _last_seen_for_station_fast(station: str):
-    """
-    Return most-recent timestamp for a station (Arizona tz) using:
-      ORDER BY timestamp DESC LIMIT 1
-    """
+    """Return most-recent timestamp for a station (Arizona tz)."""
     if db is None:
         return None
     try:
@@ -92,17 +89,16 @@ def _render_station_status(stations: list[str]):
 
 # ---------- Cached heavy loader wrapper ----------
 @st.cache_data(ttl=120, show_spinner=False)
-def _load_df_windowed(station: str, start_dt: pd.Timestamp, end_dt: pd.Timestamp, fields: list[str]) -> pd.DataFrame:
-    """Ask loader for a time window + fields. Runs only after 'Load & Plot'."""
+def _load_df_windowed(station: str, start_dt: pd.Timestamp, end_dt: pd.Timestamp) -> pd.DataFrame:
+    """Ask loader for a time window (all fields). Runs only after 'Load & Plot'."""
     try:
         df = load_station_data(
             station_id=station,
             start=start_dt.to_pydatetime(),
             end=end_dt.to_pydatetime(),
-            fields=fields,
+            fields=None,   # ✅ fetch all raw fields so derived metrics can be computed
         )
     except TypeError:
-        # Old loader signature
         df = load_station_data(station)
     except Exception as e:
         st.error(f"❌ Failed to load data: {e}")
@@ -169,7 +165,7 @@ if not st.session_state.ready_to_plot:
 
 # ---------- Heavy path ----------
 with st.spinner("Loading data..."):
-    df_raw = _load_df_windowed(station, start_dt, end_dt, selected_fields)
+    df_raw = _load_df_windowed(station, start_dt, end_dt)
 
 if df_raw.empty:
     st.success(random.choice([
